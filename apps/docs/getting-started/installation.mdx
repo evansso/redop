@@ -1,0 +1,52 @@
+---
+title: Installation
+description: Install redop and understand the minimum runtime requirements.
+---
+
+import InstallSnippet from "../snippets/install.mdx";
+
+`redop` is designed for Bun-first MCP servers.
+
+## Scaffold a new app
+
+If you want a ready-to-run starter, use `create-redop-app`:
+
+```sh
+bun create redop-app
+```
+
+The generated app includes:
+
+- `redop`
+- `zod`
+- `typescript`
+- `bun-types`
+- a starter `src/index.ts`
+- transport and deploy presets
+
+## Install the package
+
+<InstallSnippet />
+
+## Runtime expectations
+
+- Bun is the primary runtime
+- Zod is optional but recommended for the best DX
+- the framework currently supports `http` and `stdio` transports
+
+If you scaffold with `create-redop-app`, `zod` is already installed for you.
+
+## What you get after install
+
+- `Redop` for creating a server
+- built-in plugins like `logger`, `analytics`, `apiKey`, `bearer`, `rateLimit`, and `cache`
+- schema adapter helpers for Zod, Standard Schema, and JSON Schema
+- typed event objects for handlers, middleware, and hooks
+
+## Common mistake
+
+Do not point npm package consumers at raw `src/*.ts` files long-term if you plan to publish. Keep your app code in TypeScript, but ship built artifacts when you package `redop` for npm.
+
+## Next
+
+Go to [Your first server](/getting-started/first-server).

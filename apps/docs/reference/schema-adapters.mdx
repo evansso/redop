@@ -1,0 +1,56 @@
+---
+title: Schema Adapters
+description: Understand how redop uses Zod, Standard Schema, and JSON Schema for validation and tool schema generation.
+---
+
+`redop` separates tool validation from tool registration through schema adapters.
+
+## What that means in practice
+
+When you pass `input` to a tool, `redop` needs to do two things:
+
+- parse and validate the incoming tool arguments
+- produce JSON Schema for MCP tool discovery
+
+Adapters are the layer that makes those two steps work across different schema systems.
+
+## Built-in paths
+
+### Zod v4
+
+Recommended for the best DX.
+
+- strong TypeScript inference
+- defaults and coercions flow into handler input
+- JSON Schema comes from Standard Schema support
+
+### Standard Schema
+
+If a schema implements the Standard Schema shape, `redop` can use it through the standard adapter path.
+
+### Plain JSON Schema
+
+If you pass a plain JSON Schema object, `redop` uses it directly for tool metadata and keeps the input shape working without extra libraries.
+
+## Custom adapters
+
+If you use another schema library, provide a custom adapter through the constructor:
+
+```ts
+new Redop({
+  name: "custom-adapter-server",
+  version: "0.1.0",
+  schemaAdapter: myAdapter,
+});
+```
+
+The adapter must:
+
+- parse runtime input
+- return JSON Schema for MCP tool descriptions
+
+## Rule of thumb
+
+- use Zod when you can
+- use plain JSON Schema when you already have it
+- use a custom adapter when your schema system is different but stable across your app

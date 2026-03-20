@@ -1,0 +1,36 @@
+---
+title: Tool Definition Reference
+description: Reference for ToolDef, handler events, and tool-local hooks.
+---
+
+## Core shape
+
+```ts
+app.tool("name", {
+  description: "Human-friendly description",
+  input,
+  before: ({ input, ctx, request, tool }) => {},
+  handler: ({ input, ctx, request, tool }) => {},
+  after: ({ input, result, ctx, request, tool }) => {},
+  annotations: {
+    readOnlyHint: true,
+  },
+});
+```
+
+## Important fields
+
+- `description` is shown in tool listings
+- `input` provides schema parsing and JSON Schema generation
+- `before` is tool-local lifecycle before middleware
+- `handler` does the actual work
+- `after` runs after successful handler/middleware completion
+- `annotations` exposes MCP tool hints
+
+## Event object recap
+
+- `input` = parsed tool input
+- `ctx` = request-scoped mutable state
+- `request` = transport metadata
+- `tool` = resolved tool name
+- `result` = only available in `after`

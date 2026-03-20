@@ -1,0 +1,45 @@
+{
+  "name": "create-redop-app",
+  "version": "0.1.0",
+  "description": "Scaffold a Bun-first Redop app",
+  "license": "MIT",
+  "keywords": [
+    "redop",
+    "mcp",
+    "bun",
+    "scaffold",
+    "cli"
+  ],
+  "homepage": "https://redop.useagents.site",
+  "type": "module",
+  "bin": {
+    "create-redop-app": "./dist/index.js"
+  },
+  "module": "./dist/index.js",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "bun run clean && bun build ./src/index.ts --outdir ./dist --target node && tsc -p tsconfig.build.json",
+    "prepublishOnly": "bun run build && bun test && bun run typecheck",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "bun-types": "^1.3.11",
+    "typescript": "^5.4.0"
+  }
+}

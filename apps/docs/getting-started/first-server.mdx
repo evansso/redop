@@ -1,0 +1,52 @@
+---
+title: Your First Server
+description: Build and run a minimal redop MCP server over HTTP.
+---
+
+This is the smallest useful `redop` server: one tool, one handler, one transport.
+
+## Copy-paste example
+
+```ts
+import { Redop } from "redop";
+
+new Redop({
+  name: "hello-redop",
+  version: "0.1.0",
+})
+  .tool("ping", {
+    description: "Health check",
+    handler: () => {
+      return { pong: true, ts: Date.now() };
+    },
+  })
+  .listen({
+    port: process.env.PORT ?? 3000,
+    hostname: "0.0.0.0",
+    cors: true,
+  });
+```
+
+## What happens here
+
+- `new Redop(...)` defines the MCP server identity
+- `tool("ping", ...)` registers a tool with no input schema
+- `handler` returns plain serializable data
+- `listen(...)` starts the HTTP transport
+
+## When to use this shape
+
+Use this as your default starting point when:
+
+- you want to verify your MCP client can connect
+- your first tool does not need input validation yet
+- you want to add middleware and hooks incrementally
+
+## Common mistake
+
+Do not overbuild your first tool. Get one end-to-end MCP tool working first, then add input schemas, auth, plugins, and analytics once the shape feels right.
+
+## Next
+
+- [Running over HTTP vs stdio](/getting-started/transports)
+- [Your first typed Zod tool](/getting-started/typed-zod-tool)

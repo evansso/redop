@@ -1,0 +1,38 @@
+---
+title: Redop Reference
+description: Concise reference for the Redop class and its main chainable methods.
+---
+
+## Constructor
+
+```ts
+new Redop({
+  name: "my-mcp-server",
+  version: "0.1.0",
+  schemaAdapter,
+})
+```
+
+## Main methods
+
+- `tool(name, def)` registers a tool
+- `group(prefix, callback)` registers prefixed tool groups
+- `use(plugin)` merges another `Redop` instance
+- `middleware(fn)` registers request-aware middleware
+- `onTransform(fn)` mutates raw params before parsing
+- `onBeforeHandle(fn)` observes the request before middleware/handler
+- `onAfterHandle(fn)` observes successful results after tool-local `after`
+- `onError(fn)` observes thrown errors
+- `mapResponse(fn)` maps successful results before transport output
+- `listen(opts)` starts the transport
+
+## Introspection
+
+- `toolNames` returns registered tool names
+- `getTool(name)` returns the resolved tool metadata
+- `serverInfo` returns the MCP server identity used during initialize
+
+## See also
+
+- [Tool definition](/reference/tool-definition)
+- [Lifecycle reference](/reference/lifecycle)

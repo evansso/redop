@@ -1,0 +1,98 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "sequoia",
+  "name": "Redop",
+  "colors": {
+    "primary": "#f03603",
+    "light": "#f03603",
+    "dark": "#f03603"
+  },
+  "favicon": "/favicon.ico",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Introduction",
+        "pages": ["index"]
+      },
+      {
+        "group": "Getting Started",
+        "pages": [
+          "getting-started/installation",
+          "getting-started/first-server",
+          "getting-started/transports",
+          "getting-started/typed-zod-tool"
+        ]
+      },
+      {
+        "group": "Core Concepts",
+        "pages": [
+          "core-concepts/tools",
+          "core-concepts/handler-event",
+          "core-concepts/middleware",
+          "core-concepts/lifecycle-hooks",
+          "core-concepts/groups"
+        ]
+      },
+      {
+        "group": "Plugins",
+        "pages": ["plugins/using-plugins", "plugins/authoring-plugins"]
+      },
+      {
+        "group": "Authentication & Control Flow",
+        "pages": [
+          "authentication/api-key",
+          "authentication/bearer",
+          "authentication/control-flow"
+        ]
+      },
+      {
+        "group": "Examples",
+        "pages": ["examples/with-zod", "examples/plugins", "examples/basic"]
+      },
+      {
+        "group": "Deploy to Production",
+        "pages": [
+          "deployment/overview",
+          "deployment/bun-runtime",
+          "deployment/railway",
+          "deployment/fly-io",
+          "deployment/vercel"
+        ]
+      },
+      {
+        "group": "Reference",
+        "pages": [
+          "reference/redop",
+          "reference/tool-definition",
+          "reference/schema-adapters",
+          "reference/built-ins",
+          "reference/lifecycle",
+          "reference/http-routes"
+        ]
+      }
+    ]
+  },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "contextual": {
+    "display": "toc",
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude",
+      "perplexity",
+      "mcp",
+      "cursor",
+      "vscode"
+    ]
+  },
+  "footer": {
+    "socials": {
+      "x": "https://x.com/UseAgents",
+      "github": "https://github.com/useagentsai/redop"
+    }
+  }
+}
