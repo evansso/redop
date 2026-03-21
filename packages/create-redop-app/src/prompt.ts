@@ -26,7 +26,7 @@ export async function runPrompts(
           placeholder: initialName || "my-redop-app",
           initialValue: initialName || "my-redop-app",
           validate: (value) => {
-            if (value.trim().length === 0) {
+            if (value?.trim().length === 0) {
               return "Project name cannot be empty";
             }
           },
