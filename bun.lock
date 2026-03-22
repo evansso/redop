@@ -32,6 +32,7 @@
         "@redop-ai/tsconfig": "workspace:*",
         "@tailwindcss/postcss": "^4.2.2",
         "@types/bun": "^1.3.11",
+        "@types/node": "^25.5.0",
         "@types/react": "19.2.2",
         "@types/react-dom": "19.2.2",
         "tailwindcss": "^4.2.2",
@@ -40,7 +41,7 @@
     },
     "packages/create-redop-app": {
       "name": "create-redop-app",
-      "version": "0.1.0",
+      "version": "0.1.2",
       "bin": {
         "create-redop-app": "./dist/index.js",
       },
@@ -60,7 +61,7 @@
     },
     "packages/redop": {
       "name": "@useagents/redop",
-      "version": "0.1.0",
+      "version": "0.1.3",
       "dependencies": {
         "zod": "^4.3.6",
       },
