@@ -28,20 +28,20 @@ async function runTool(
 describe("plugin api", () => {
   test("definePlugin preserves options typing and exposes metadata", () => {
     const plugin = definePlugin<{ enabled: boolean }>({
-      name: "typed-plugin",
-      version: "0.1.0",
       description: "typed plugin example",
+      name: "typed-plugin",
       setup: (opts) => {
         expectType<boolean>(opts.enabled);
         return new Redop();
       },
+      version: "0.1.0",
     });
 
     expectType<PluginFactory<{ enabled: boolean }>>(plugin);
     expect(plugin.meta).toEqual({
+      description: "typed plugin example",
       name: "typed-plugin",
       version: "0.1.0",
-      description: "typed plugin example",
     });
   });
 
@@ -53,7 +53,6 @@ describe("plugin api", () => {
 
     const tenantPlugin = definePlugin<{ header?: string }, AppCtx>({
       name: "tenant-plugin",
-      version: "0.1.0",
       setup: (opts) =>
         new Redop<AppCtx>()
           .use(
@@ -73,15 +72,23 @@ describe("plugin api", () => {
               transport: request.transport,
             }),
           }),
+      version: "0.1.0",
     });
 
-    const app = new Redop<AppCtx>().use(tenantPlugin({ header: "x-tenant-id" }));
+    const app = new Redop<AppCtx>().use(
+      tenantPlugin({ header: "x-tenant-id" })
+    );
 
     expect(
-      await runTool(app, "whoami", {}, {
-        headers: { "x-tenant-id": "acme" },
-        transport: "http",
-      })
+      await runTool(
+        app,
+        "whoami",
+        {},
+        {
+          headers: { "x-tenant-id": "acme" },
+          transport: "http",
+        }
+      )
     ).toEqual({
       startedByPlugin: true,
       tenantId: "acme",
@@ -92,7 +99,6 @@ describe("plugin api", () => {
   test("optional namespacing prevents plugin tool collisions", async () => {
     const notesPlugin = definePlugin<{ namespace?: string }>({
       name: "notes-plugin",
-      version: "0.1.0",
       setup: ({ namespace }) => {
         const plugin = new Redop();
 
@@ -109,6 +115,7 @@ describe("plugin api", () => {
 
         return plugin;
       },
+      version: "0.1.0",
     });
 
     const app = new Redop()
@@ -122,9 +129,8 @@ describe("plugin api", () => {
 
   test("plugin metadata remains descriptive and reusable", () => {
     const requestAwarePlugin = definePlugin<{ namespace?: string }>({
-      name: "request-aware-plugin",
-      version: "0.2.0",
       description: "Reads request headers and exposes namespaced tools.",
+      name: "request-aware-plugin",
       setup: ({ namespace }) => {
         const plugin = new Redop();
         const prefix = namespace ?? "request";
@@ -135,6 +141,7 @@ describe("plugin api", () => {
         );
         return plugin;
       },
+      version: "0.2.0",
     });
 
     expect(requestAwarePlugin.meta.name).toBe("request-aware-plugin");
@@ -153,7 +160,6 @@ describe("plugin api", () => {
 
     const authPlugin = definePlugin<{ headerName?: string }, AppCtx>({
       name: "auth-plugin",
-      version: "0.1.0",
       setup: ({ headerName = "x-api-key" }) =>
         middleware<unknown, AppCtx>(async ({ request, ctx, next }) => {
           const key = request.headers[headerName];
@@ -168,6 +174,7 @@ describe("plugin api", () => {
 
           throw new Error("Unauthorized");
         }),
+      version: "0.1.0",
     });
 
     const app = new Redop<AppCtx>()
@@ -177,10 +184,15 @@ describe("plugin api", () => {
       });
 
     await expect(
-      runTool(app, "me", {}, {
-        headers: { "x-api-key": "demo-pro-key" },
-        transport: "http",
-      })
+      runTool(
+        app,
+        "me",
+        {},
+        {
+          headers: { "x-api-key": "demo-pro-key" },
+          transport: "http",
+        }
+      )
     ).resolves.toEqual({
       keyId: "key_pro_456",
       owner: "globex",
@@ -197,17 +209,16 @@ describe("plugin api", () => {
 
     const authPlugin = definePlugin<{}, AppCtx>({
       name: "auth-plugin",
-      version: "0.1.0",
       setup: () =>
         middleware<unknown, AppCtx>(async ({ ctx, next }) => {
           ctx.auth = { keyId: "shared-key" };
           return next();
         }),
+      version: "0.1.0",
     });
 
     const rateLimitPlugin = definePlugin<{ max?: number }, AppCtx>({
       name: "rate-limit-plugin",
-      version: "0.1.0",
       setup: ({ max = 1 }) => {
         const hits = new Map<string, number>();
 
@@ -221,6 +232,7 @@ describe("plugin api", () => {
           return next();
         });
       },
+      version: "0.1.0",
     });
 
     const app = new Redop<AppCtx>()
@@ -231,19 +243,29 @@ describe("plugin api", () => {
       });
 
     await expect(
-      runTool(app, "ping", {}, {
-        headers: { "x-api-key": "demo-pro-key" },
-        ip: "127.0.0.1",
-        transport: "http",
-      })
+      runTool(
+        app,
+        "ping",
+        {},
+        {
+          headers: { "x-api-key": "demo-pro-key" },
+          ip: "127.0.0.1",
+          transport: "http",
+        }
+      )
     ).resolves.toEqual({ keyId: "shared-key", ok: true });
 
     await expect(
-      runTool(app, "ping", {}, {
-        headers: { "x-api-key": "another-key-same-consumer" },
-        ip: "127.0.0.1",
-        transport: "http",
-      })
+      runTool(
+        app,
+        "ping",
+        {},
+        {
+          headers: { "x-api-key": "another-key-same-consumer" },
+          ip: "127.0.0.1",
+          transport: "http",
+        }
+      )
     ).rejects.toThrow("Rate limit exceeded for shared-key");
   });
 });

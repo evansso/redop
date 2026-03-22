@@ -1,13 +1,10 @@
 import path from "node:path";
+
 import * as p from "@clack/prompts";
 import chalk from "chalk";
-import {
-  DEPLOY_TARGETS,
-  type DeployTarget,
-  type ResolvedOptions,
-  TRANSPORTS,
-  type Transport,
-} from "./types";
+
+import { DEPLOY_TARGETS, TRANSPORTS } from './types';
+import type { DeployTarget, ResolvedOptions, Transport } from './types';
 
 /**
  * Runs the interactive CLI prompts to gather project configuration.
@@ -20,49 +17,17 @@ export async function runPrompts(
 ): Promise<ResolvedOptions> {
   const project = await p.group(
     {
-      name: () =>
-        p.text({
-          message: "What is your project named?",
-          placeholder: initialName || "my-redop-app",
-          initialValue: initialName || "my-redop-app",
-          validate: (value) => {
-            if (value?.trim().length === 0) {
-              return "Project name cannot be empty";
-            }
-          },
+      components: () =>
+        p.multiselect({
+          message: "Select components to initialize:",
+          options: [{ value: "tools", label: "Tools", hint: "recommended" }],
         }),
-      template: () =>
-        p.select({
-          message: "Select a template:",
-          options: [
-            { value: "standard", label: "Default (Standard MCP server)" },
-          ],
+      confirm: ({ results }) =>
+        p.confirm({
+          message: `Creating a new redop app in ${chalk.cyan(
+            path.resolve(process.cwd(), results.name as string)
+          )}. Ok to continue?`,
         }),
-      packageManager: () =>
-        p.select({
-          message: "Select a package manager:",
-          initialValue: "bun",
-          options: [
-            { value: "bun", label: "bun" },
-            { value: "npm", label: "npm" },
-          ],
-        }),
-      transport: () => {
-        // Skip prompt if flag is provided and valid
-        if (
-          flags?.transport &&
-          TRANSPORTS.includes(flags.transport as Transport)
-        ) {
-          return Promise.resolve(flags.transport as Transport);
-        }
-        return p.select({
-          message: "Select the transport you want to use:",
-          options: [
-            { value: "http", label: "HTTP (runs on a server)" },
-            { value: "stdio", label: "Stdio (local pipe)" },
-          ],
-        });
-      },
       deploy: ({ results }) => {
         // 1. Skip if transport is stdio (local only)
         if (results.transport === "stdio") {
@@ -86,17 +51,49 @@ export async function runPrompts(
           ],
         });
       },
-      components: () =>
-        p.multiselect({
-          message: "Select components to initialize:",
-          options: [{ value: "tools", label: "Tools", hint: "recommended" }],
+      name: () =>
+        p.text({
+          message: "What is your project named?",
+          placeholder: initialName || "my-redop-app",
+          initialValue: initialName || "my-redop-app",
+          validate: (value) => {
+            if (value?.trim().length === 0) {
+              return "Project name cannot be empty";
+            }
+          },
         }),
-      confirm: ({ results }) =>
-        p.confirm({
-          message: `Creating a new redop app in ${chalk.cyan(
-            path.resolve(process.cwd(), results.name as string)
-          )}. Ok to continue?`,
+      packageManager: () =>
+        p.select({
+          message: "Select a package manager:",
+          initialValue: "bun",
+          options: [
+            { value: "bun", label: "bun" },
+            { value: "npm", label: "npm" },
+          ],
         }),
+      template: () =>
+        p.select({
+          message: "Select a template:",
+          options: [
+            { value: "standard", label: "Default (Standard MCP server)" },
+          ],
+        }),
+      transport: () => {
+        // Skip prompt if flag is provided and valid
+        if (
+          flags?.transport &&
+          TRANSPORTS.includes(flags.transport as Transport)
+        ) {
+          return Promise.resolve(flags.transport as Transport);
+        }
+        return p.select({
+          message: "Select the transport you want to use:",
+          options: [
+            { value: "http", label: "HTTP (runs on a server)" },
+            { value: "stdio", label: "Stdio (local pipe)" },
+          ],
+        });
+      },
     },
     {
       onCancel: () => {
@@ -113,11 +110,11 @@ export async function runPrompts(
 
   return {
     appName: project.name as string,
-    targetDir: path.resolve(process.cwd(), project.name as string),
-    transport: project.transport as Transport,
-    packageManager: project.packageManager as "bun" | "npm",
-    template: project.template as string,
     components: project.components as string[],
     deploy: (project.deploy as DeployTarget) || "none",
+    packageManager: project.packageManager as "bun" | "npm",
+    targetDir: path.resolve(process.cwd(), project.name as string),
+    template: project.template as string,
+    transport: project.transport as Transport,
   };
 }

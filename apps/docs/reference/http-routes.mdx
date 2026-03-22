@@ -7,13 +7,13 @@ When you run the HTTP transport, `redop` mounts these routes automatically.
 
 ## Routes
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `POST` | `/mcp` | JSON-RPC endpoint |
-| `GET` | `/mcp` | SSE stream for server-to-client events |
-| `DELETE` | `/mcp` | Terminate an MCP session |
-| `GET` | `/mcp/health` | Health check |
-| `GET` | `/mcp/schema` | OpenAPI-style tool manifest |
+| Method   | Path          | Purpose                                |
+| -------- | ------------- | -------------------------------------- |
+| `POST`   | `/mcp`        | JSON-RPC endpoint                      |
+| `GET`    | `/mcp`        | SSE stream for server-to-client events |
+| `DELETE` | `/mcp`        | Terminate an MCP session               |
+| `GET`    | `/mcp/health` | Health check                           |
+| `GET`    | `/mcp/schema` | OpenAPI-style tool manifest            |
 
 ## Why `/mcp/schema` matters
 
@@ -27,5 +27,5 @@ The server identity returned during `initialize` comes from:
 new Redop({
   name: "my-mcp-server",
   version: "0.1.0",
-})
+});
 ```

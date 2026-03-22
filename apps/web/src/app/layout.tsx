@@ -1,19 +1,16 @@
 import type { Metadata } from "next";
+
 import "@/styles/globals.css";
 import { SITE_KEYWORDS, siteConfig } from "@/config/site";
 import { cn } from "@/lib/utils";
 import { geistMono, geistSans } from "@/styles/fonts";
 
 export const metadata: Metadata = {
-  title: {
-    default: siteConfig.title,
-    template: `%s - ${siteConfig.name}`,
-  },
-  description: siteConfig.description,
-  metadataBase: new URL(siteConfig.url),
   authors: [{ name: "Evans Maina" }],
   creator: "Evans Maina",
-  publisher: "UseAgents",
+  description: siteConfig.description,
+  keywords: SITE_KEYWORDS,
+  metadataBase: new URL(siteConfig.url),
   openGraph: {
     title: siteConfig.title,
     description: siteConfig.description,
@@ -30,6 +27,22 @@ export const metadata: Metadata = {
       },
     ],
   },
+  publisher: "UseAgents",
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-video-preview": -1,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
+  },
+  title: {
+    default: siteConfig.title,
+    template: `%s - ${siteConfig.name}`,
+  },
   twitter: {
     card: "summary_large_image",
     title: siteConfig.title,
@@ -44,26 +57,14 @@ export const metadata: Metadata = {
       },
     ],
   },
-  keywords: SITE_KEYWORDS,
-  robots: {
-    index: true,
-    follow: true,
-    googleBot: {
-      index: true,
-      follow: true,
-      "max-video-preview": -1,
-      "max-image-preview": "large",
-      "max-snippet": -1,
-    },
-  },
 };
 
 export const viewport = {
-  width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  userScalable: false,
   themeColor: [{ media: "(prefers-color-scheme: light)" }],
+  userScalable: false,
+  width: "device-width",
 };
 
 export default function RootLayout({

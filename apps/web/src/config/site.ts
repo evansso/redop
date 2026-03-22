@@ -4,12 +4,12 @@ const url =
     : "http://localhost:3000";
 
 export const siteConfig = {
-  name: "Redop",
-  title: "Redop | Bun-native MCP Framework",
   description:
     "Bun-native TypeScript framework for building typed MCP servers with tools, middleware, hooks, and plugins.",
-  url,
+  name: "Redop",
   ogImage: `${url}/og.png`,
+  title: "Redop | Bun-native MCP Framework",
+  url,
 };
 
 export const SITE_KEYWORDS = [""];

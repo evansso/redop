@@ -67,11 +67,11 @@ const DEFAULT_SERVER_INFO: Required<
  */
 export class Redop<C extends Context = Context> {
   private _hooks: HookRegistry = {
-    before: [],
     after: [],
+    before: [],
     error: [],
-    transform: [],
     mapResponse: [],
+    transform: [],
   };
 
   private _tools = new Map<string, ResolvedTool>();
@@ -86,14 +86,14 @@ export class Redop<C extends Context = Context> {
    */
   constructor(options: RedopOptions = {}) {
     this._serverInfo = {
-      name: options.name ?? DEFAULT_SERVER_INFO.name,
-      version: options.version ?? DEFAULT_SERVER_INFO.version,
-      title: options.title ?? DEFAULT_SERVER_INFO.title ?? "",
       description: options.description ?? DEFAULT_SERVER_INFO.description ?? "",
       icons: options.icons ?? DEFAULT_SERVER_INFO.icons ?? [],
-      websiteUrl: options.websiteUrl ?? DEFAULT_SERVER_INFO.websiteUrl ?? "",
       instructions:
         options.instructions ?? DEFAULT_SERVER_INFO.instructions ?? "",
+      name: options.name ?? DEFAULT_SERVER_INFO.name,
+      title: options.title ?? DEFAULT_SERVER_INFO.title ?? "",
+      version: options.version ?? DEFAULT_SERVER_INFO.version,
+      websiteUrl: options.websiteUrl ?? DEFAULT_SERVER_INFO.websiteUrl ?? "",
     };
 
     if (options?.schemaAdapter) {
@@ -170,8 +170,8 @@ export class Redop<C extends Context = Context> {
     const fullName = this._prefix ? `${this._prefix}_${name}` : name;
 
     let inputSchema: Record<string, unknown> = {
-      type: "object",
       properties: {},
+      type: "object",
     };
 
     if (def.input) {
@@ -183,13 +183,13 @@ export class Redop<C extends Context = Context> {
     }
 
     this._tools.set(fullName, {
-      name: fullName,
-      before: def.before as ResolvedTool["before"],
       after: def.after as ResolvedTool["after"],
-      description: def.description,
       annotations: def.annotations as Record<string, unknown>,
-      inputSchema,
+      before: def.before as ResolvedTool["before"],
+      description: def.description,
       handler: def.handler as ResolvedTool["handler"],
+      inputSchema,
+      name: fullName,
     });
 
     return this;
@@ -256,17 +256,17 @@ export class Redop<C extends Context = Context> {
 
     const ctx = {
       headers: request.headers,
+      rawParams: rawArgs,
       requestId: crypto.randomUUID(),
       sessionId: request.sessionId,
       tool: toolName,
       transport: request.transport,
-      rawParams: rawArgs,
     } as C;
 
     let params = { ...rawArgs };
 
     for (const hook of this._hooks.transform) {
-      const out = await hook({ tool: toolName, params, ctx, request });
+      const out = await hook({ ctx, params, request, tool: toolName });
       if (out && typeof out === "object") {
         params = out as Record<string, unknown>;
       }
@@ -277,18 +277,18 @@ export class Redop<C extends Context = Context> {
     if (parser) {
       try {
         input = await parser(params);
-      } catch (err) {
+      } catch (error) {
         const validationError = new Error(
           `Validation failed for tool "${toolName}": ${
-            err instanceof Error ? err.message : String(err)
+            error instanceof Error ? error.message : String(error)
           }`
         ) as Error & {
           cause?: unknown;
           issues?: unknown;
         };
-        validationError.cause = err;
-        if (typeof err === "object" && err !== null && "issues" in err) {
-          validationError.issues = (err as { issues?: unknown }).issues;
+        validationError.cause = error;
+        if (typeof error === "object" && error !== null && "issues" in error) {
+          validationError.issues = (error as { issues?: unknown }).issues;
         }
         throw validationError;
       }
@@ -304,11 +304,11 @@ export class Redop<C extends Context = Context> {
     try {
       for (const hook of this._hooks.before) {
         await hook({
-          tool: toolName,
           ctx,
           input,
           params: input,
           request,
+          tool: toolName,
         });
       }
 
@@ -342,12 +342,12 @@ export class Redop<C extends Context = Context> {
 
       for (const hook of this._hooks.after) {
         await hook({
-          tool: toolName,
           ctx,
           input,
           params: input,
           request,
           result,
+          tool: toolName,
         });
       }
 
@@ -356,18 +356,18 @@ export class Redop<C extends Context = Context> {
       }
 
       return result;
-    } catch (err) {
+    } catch (error) {
       for (const hook of this._hooks.error) {
         await hook({
           tool: toolName,
           ctx,
-          error: err,
+          error: error,
           input,
           params: input,
           request,
         });
       }
-      throw err;
+      throw error;
     }
   }
 
@@ -404,7 +404,7 @@ export class Redop<C extends Context = Context> {
    * Registered tool names in their final exposed form.
    */
   get toolNames(): string[] {
-    return Array.from(this._tools.keys());
+    return [...this._tools.keys()];
   }
 
   /**

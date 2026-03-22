@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import chalk from "chalk";
 import { Command } from "commander";
+
 import packageJson from "../package.json";
 import { assertEmptyTargetDir } from "./files";
 import { generateProject } from "./generator";

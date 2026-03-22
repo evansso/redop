@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { exists, rm } from "node:fs/promises";
 import path from "node:path";
+
 import { generateProject } from "../src/generator";
 import type { ResolvedOptions } from "../src/types";
 
@@ -10,7 +11,7 @@ describe("Generator Logic", () => {
   // Clean up before and after tests
   const cleanup = async () => {
     if (await exists(TEST_DIR)) {
-      await rm(TEST_DIR, { recursive: true, force: true });
+      await rm(TEST_DIR, { force: true, recursive: true });
     }
   };
 
@@ -20,12 +21,12 @@ describe("Generator Logic", () => {
   test("should generate core files for a standard http app", async () => {
     const options: ResolvedOptions = {
       appName: "test-app",
-      targetDir: TEST_DIR,
-      transport: "http",
-      packageManager: "bun",
-      template: "standard",
       components: ["tools"],
       deploy: "none",
+      packageManager: "bun",
+      targetDir: TEST_DIR,
+      template: "standard",
+      transport: "http",
     };
 
     // We skip the 'execa' install part in tests to keep them fast

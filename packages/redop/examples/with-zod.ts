@@ -5,22 +5,23 @@
 // ─────────────────────────────────────────────
 
 import { z } from "zod";
+
 import { analytics, logger, Redop } from "../src/index";
 
 // ── Simulated DB ──────────────────────────────
 
 const posts = [
   {
-    id: "1",
-    title: "Hello redop",
     body: "Building MCP servers is fun",
+    id: "1",
     tags: ["mcp", "bun"],
+    title: "Hello redop",
   },
   {
-    id: "2",
-    title: "Zod schemas",
     body: "Full inference with zero overhead",
+    id: "2",
     tags: ["typescript"],
+    title: "Zod schemas",
   },
 ];
 
@@ -59,12 +60,12 @@ new Redop({
   .tool("list_posts", {
     description: "List all blog posts with optional tag filter",
     input: z.object({
-      tag: z.string().optional(),
       limit: z.number().int().min(1).max(100).default(10),
+      tag: z.string().optional(),
     }),
     // ↓ handler input is fully typed: { tag: string | undefined, limit: number }
     handler: ({ input }) => {
-      const tag = input.tag;
+      const {tag} = input;
       const filtered = tag ? posts.filter((p) => p.tags.includes(tag)) : posts;
       return { posts: filtered.slice(0, input.limit), total: filtered.length };
     },
@@ -72,9 +73,6 @@ new Redop({
 
   .tool("get_post", {
     description: "Get a single post by ID",
-    input: z.object({
-      id: z.string().min(1),
-    }),
     handler: ({ input }) => {
       const post = posts.find((p) => p.id === input.id);
       if (!post) {
@@ -82,23 +80,26 @@ new Redop({
       }
       return post;
     },
+    input: z.object({
+      id: z.string().min(1),
+    }),
   })
 
   .tool("create_post", {
     description: "Create a new blog post",
     annotations: { destructiveHint: false },
     input: z.object({
-      title: z.string().min(3).max(200),
       body: z.string().min(10),
       tags: z.array(z.string().max(30)).max(10).default([]),
+      title: z.string().min(3).max(200),
     }),
     // handler receives { input, ctx, request, tool }
     handler: ({ input, request }) => {
       const post = {
-        id: crypto.randomUUID().slice(0, 8),
-        title: input.title,
         body: input.body,
+        id: crypto.randomUUID().slice(0, 8),
         tags: input.tags,
+        title: input.title,
       };
       posts.push(post);
       return { created: post, sourceIp: request.ip ?? "unknown" };
@@ -112,10 +113,6 @@ new Redop({
 
   .tool("search_posts", {
     description: "Full-text search across post titles and bodies",
-    input: z.object({
-      query: z.string().min(1),
-      field: z.enum(["title", "body", "all"]).default("all"),
-    }),
     handler: ({ input }) => {
       const q = input.query.toLowerCase();
       const results = posts.filter((p) => {
@@ -131,13 +128,17 @@ new Redop({
       });
       return { results, query: input.query, count: results.length };
     },
+    input: z.object({
+      query: z.string().min(1),
+      field: z.enum(["title", "body", "all"]).default("all"),
+    }),
   })
 
   .listen({
-    port: process.env.PORT ?? 3000,
-    hostname: "0.0.0.0",
     cors: true,
+    hostname: "0.0.0.0",
     onListen: ({ url }) => {
       console.log(`ins▲ redop (zod example) → ${url}`);
     },
+    port: process.env.PORT ?? 3000,
   });

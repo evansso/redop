@@ -1,11 +1,11 @@
 import type { Context, ToolHandlerEvent } from "../src/index";
 import { definePlugin, middleware, Redop } from "../src/index";
 
-type AuthMeta = {
+interface AuthMeta {
   keyId: string;
   owner: string;
   plan: "free" | "pro";
-};
+}
 
 type ExampleCtx = Context<{
   auth?: AuthMeta;
@@ -25,7 +25,9 @@ const API_KEYS: Record<string, AuthMeta> = {
   },
 };
 
-function resolveRateLimitKey(event: ToolHandlerEvent<unknown, ExampleCtx>): string {
+function resolveRateLimitKey(
+  event: ToolHandlerEvent<unknown, ExampleCtx>
+): string {
   return (
     event.ctx.auth?.keyId ??
     event.request.ip ??
@@ -38,10 +40,9 @@ export const apiKeyAuthPlugin = definePlugin<{
   headerName?: string;
   lookup?: (apiKey: string) => AuthMeta | Promise<AuthMeta | null> | null;
 }>({
-  name: "example-api-key-auth",
-  version: "0.1.0",
   description:
     "Validate x-api-key headers and attach reusable auth metadata to ctx.",
+  name: "example-api-key-auth",
   setup: (opts) =>
     middleware<unknown, ExampleCtx>(async ({ request, ctx, next }) => {
       if (request.transport !== "http") {
@@ -66,20 +67,21 @@ export const apiKeyAuthPlugin = definePlugin<{
       ctx.auth = auth;
       return next();
     }),
+  version: "0.1.0",
 });
 
 export const tenantPlugin = definePlugin<{
   header?: string;
 }>({
-  name: "tenant-plugin",
-  version: "0.1.0",
   description: "Attach tenant information from request headers to ctx.",
+  name: "tenant-plugin",
   setup: (opts) =>
     middleware<unknown, ExampleCtx>(async ({ request, ctx, next }) => {
       const headerName = (opts.header ?? "x-tenant-id").toLowerCase();
       ctx.tenantId = request.headers[headerName] ?? ctx.auth?.owner ?? "public";
       return next();
     }),
+  version: "0.1.0",
 });
 
 export const authRateLimitPlugin = definePlugin<{
@@ -87,10 +89,9 @@ export const authRateLimitPlugin = definePlugin<{
   namespace?: string;
   windowMs?: number;
 }>({
-  name: "example-auth-rate-limit",
-  version: "0.1.0",
   description:
     "Rate limit requests by authenticated key metadata first, then IP fallback.",
+  name: "example-auth-rate-limit",
   setup: (opts) => {
     const max = opts.max ?? 60;
     const windowMs = opts.windowMs ?? 60_000;
@@ -132,14 +133,14 @@ export const authRateLimitPlugin = definePlugin<{
 
     return new Redop<ExampleCtx>().use(plugin).use(tools);
   },
+  version: "0.1.0",
 });
 
 export const notesPlugin = definePlugin<{
   namespace?: string;
 }>({
-  name: "notes-plugin",
-  version: "0.1.0",
   description: "Example third-party plugin that bundles namespaced tools.",
+  name: "notes-plugin",
   setup: (opts) => {
     const namespace = opts.namespace;
     const plugin = new Redop<ExampleCtx>();
@@ -170,6 +171,7 @@ export const notesPlugin = definePlugin<{
 
     return plugin;
   },
+  version: "0.1.0",
 });
 
 new Redop<ExampleCtx>()

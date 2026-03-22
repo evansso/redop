@@ -91,8 +91,9 @@
   },
   "footer": {
     "socials": {
+      "website": "https://redop.useagents.site",
       "x": "https://x.com/UseAgents",
-      "github": "https://github.com/useagentsai/redop"
+      "github": "https://github.com/evansso/redop"
     }
   }
 }

@@ -200,8 +200,10 @@ export interface PluginMeta {
 /**
  * Definition object used by `definePlugin(...)`.
  */
-export interface PluginDefinition<Options, C extends Context = Context>
-  extends PluginMeta {
+export interface PluginDefinition<
+  Options,
+  C extends Context = Context,
+> extends PluginMeta {
   /** Create a plugin instance from a single options object. */
   setup: (options: Options) => import("./redop").Redop<C>;
 }
@@ -285,11 +287,11 @@ export interface StandardSchemaResultSuccess<Output> {
 
 export interface StandardSchemaIssue {
   readonly message: string;
-  readonly path?: ReadonlyArray<PropertyKey | { readonly key: PropertyKey }>;
+  readonly path?: readonly (PropertyKey | { readonly key: PropertyKey })[];
 }
 
 export interface StandardSchemaResultFailure {
-  readonly issues: ReadonlyArray<StandardSchemaIssue>;
+  readonly issues: readonly StandardSchemaIssue[];
 }
 
 export interface StandardSchemaJsonOptions {

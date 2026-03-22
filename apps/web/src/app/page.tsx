@@ -13,29 +13,17 @@ import { motion } from "motion/react";
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
+
+import { Icons } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 
 export default function Home() {
-  const [pkgManager, setPkgManager] = useState("npm");
   const [copied, setCopied] = useState(false);
 
-  const getCommand = () => {
-    switch (pkgManager) {
-      case "npm":
-        return "npm install redop";
-      case "yarn":
-        return "yarn add redop";
-      case "pnpm":
-        return "pnpm add redop";
-      case "bun":
-        return "bun add redop";
-      default:
-        return "pnpm add redop";
-    }
-  };
+  const command = "bun create redop-app";
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(getCommand());
+    navigator.clipboard.writeText(command);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -45,27 +33,18 @@ export default function Home() {
       {/* Navbar */}
       <header className="sticky top-0 z-50 w-full border-redop-border border-b bg-redop-warm/90 backdrop-blur-sm">
         <div className="mx-auto flex max-w-380 items-center justify-between px-8 py-4">
-          <div className="flex items-center gap-2">
-            <span className="font-mono font-semibold text-redop-ink text-xl uppercase tracking-widest">
-              Redop
-            </span>
-          </div>
+          <Icons.Logo className="w-20" />
           <nav className="flex items-center gap-6 font-mono text-base text-redop-ink/70 uppercase tracking-wider">
             <Link
               className="transition-colors hover:text-redop-primary"
-              href="#"
+              href="/docs"
             >
               Docs
             </Link>
             <Link
               className="transition-colors hover:text-redop-primary"
-              href="#"
-            >
-              Plugins
-            </Link>
-            <Link
-              className="transition-colors hover:text-redop-primary"
-              href="#"
+              href="https://github.com/evansso/redop"
+              rel="noreferrer"
             >
               GitHub
             </Link>
@@ -81,17 +60,17 @@ export default function Home() {
               animate={{ opacity: 1, y: 0 }}
               className="mb-8 font-normal text-5xl text-redop-ink leading-[1.1] tracking-tight md:text-5xl"
               initial={{ opacity: 0, y: 20 }}
-              transition={{ duration: 0.5, delay: 0.1 }}
+              transition={{ delay: 0.1, duration: 0.5 }}
             >
               Bun-native framework for building{" "}
-              <span className="text-redop-primary">typed MCP servers.</span>
+              <span className="text-redop-primary">MCP servers.</span>
             </motion.h1>
 
             <motion.p
               animate={{ opacity: 1, y: 0 }}
               className="mb-10 max-w-2xl text-lg text-muted-foreground leading-relaxed md:text-xl"
               initial={{ opacity: 0, y: 20 }}
-              transition={{ duration: 0.5, delay: 0.2 }}
+              transition={{ delay: 0.2, duration: 0.5 }}
             >
               Define tools, validate input, compose middleware, and add plugins.
               Get strong TypeScript inference from Zod and run natively on Bun.
@@ -101,43 +80,32 @@ export default function Home() {
               animate={{ opacity: 1, y: 0 }}
               className="flex flex-col gap-10"
               initial={{ opacity: 0, y: 20 }}
-              transition={{ duration: 0.5, delay: 0.3 }}
+              transition={{ delay: 0.3, duration: 0.5 }}
             >
-              <div className="flex flex-col gap-4">
-                <div className="flex items-center gap-5 font-mono text-redop-ink/50 text-sm">
-                  {["npm", "yarn", "pnpm", "bun"].map((pkg) => (
-                    <button
-                      className={`transition-colors hover:text-redop-ink ${pkgManager === pkg ? "font-medium text-redop-ink" : ""}`}
-                      key={pkg}
-                      onClick={() => setPkgManager(pkg)}
-                    >
-                      {pkg}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex max-w-md items-center justify-between rounded-lg border border-redop-ink/20 border-dashed bg-transparent px-5 py-4 font-mono text-redop-ink text-sm">
-                  <span>{getCommand()}</span>
-                  <Button onClick={handleCopy} size={"icon"} variant={"ghost"}>
-                    {copied ? (
-                      <Check className="h-4 w-4" />
-                    ) : (
-                      <Copy className="h-4 w-4" />
-                    )}
-                  </Button>
-                </div>
+              <div className="flex max-w-md items-center justify-between rounded-lg border border-redop-ink/20 border-dashed bg-transparent px-5 py-3 font-mono text-redop-ink text-sm">
+                <span>{command}</span>
+                <Button onClick={handleCopy} size={"icon"} variant={"ghost"}>
+                  {copied ? (
+                    <Check className="h-4 w-4" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                </Button>
               </div>
 
               <div className="flex flex-col gap-4">
                 <span className="font-mono text-redop-ink/50 text-sm">
                   Used by
                 </span>
-                <Image
-                  alt="UseAgents"
-                  className="opacity-80 transition-opacity hover:opacity-100"
-                  height={24}
-                  src="/logo-dark.svg"
-                  width={100}
-                />
+                <Link href="https://useagents.site">
+                  <Image
+                    alt="UseAgents"
+                    className="opacity-80 transition-opacity hover:opacity-100"
+                    height={24}
+                    src="/logo-dark.svg"
+                    width={100}
+                  />
+                </Link>
               </div>
             </motion.div>
           </div>
@@ -146,7 +114,7 @@ export default function Home() {
             animate={{ opacity: 1, y: 0 }}
             className="group relative"
             initial={{ opacity: 0, y: 20 }}
-            transition={{ duration: 0.5, delay: 0.4 }}
+            transition={{ delay: 0.4, duration: 0.5 }}
           >
             <div className="absolute -inset-1 rounded-xl bg-gradient-to-r from-redop-primary/20 to-redop-accent/20 opacity-50 blur transition duration-1000 group-hover:opacity-100 group-hover:duration-200" />
             <div className="relative overflow-hidden rounded-xl border border-redop-border bg-redop-panel shadow-sm">
@@ -177,36 +145,40 @@ export default function Home() {
                     name:{" "}
                     <span className="text-redop-deep">&apos;my-mcp&apos;</span>{" "}
                     {"}"}){"\n"}
-                    .use(authMiddleware){"\n"}
-                    .tool({"{"}
-                    {"\n"}
-                    name:{" "}
+                    {"  "}.middleware(authMiddleware){"\n"}
+                    {"  "}.tool(
                     <span className="text-redop-deep">
                       &apos;get_weather&apos;
                     </span>
-                    ,{"\n"}
-                    description:{" "}
+                    , {"{"}
+                    {"\n"}
+                    {"    "}description:{" "}
                     <span className="text-redop-deep">
                       &apos;Get current weather&apos;
                     </span>
                     ,{"\n"}
-                    schema: z.object({"{"}
+                    {"    "}input: z.object({"{"}
                     {"\n"}
-                    location: z.string(),{"\n"}
-                    {"}"}),{"\n"}
-                    <span className="text-redop-primary">async</span>{" "}
-                    handler(ctx, input) {"{"}
+                    {"      "}location: z.string(),{"\n"}
+                    {"    "}
+                    {"}"},{"\n"}
+                    {"    "}
+                    <span className="text-redop-primary">async</span> handler(
+                    {"{"} input {"}"}) {"{"}
                     {"\n"}
+                    {"      "}
                     <span className="text-redop-ink/40">
                       {"// input.location is fully typed"}
                     </span>
                     {"\n"}
+                    {"      "}
                     <span className="text-redop-primary">return</span> await
                     fetchWeather(input.location);{"\n"}
-                    {"}"}
-                    {"\n"}
-                    {"}"}){"\n"}
-                    .listen({"{"} transport:{" "}
+                    {"    "}
+                    {"}"},{"\n"}
+                    {"  "}
+                    {"}"},{"\n"}
+                    {"  "}.listen({"{"} transport:{" "}
                     <span className="text-redop-deep">&apos;stdio&apos;</span>{" "}
                     {"}"});
                   </code>
@@ -219,9 +191,9 @@ export default function Home() {
         {/* Proof Strip */}
         <motion.section
           animate={{ opacity: 1 }}
-          className="flex flex-wrap items-center gap-x-8 gap-y-4 border-redop-border border-y py-8 font-mono text-redop-ink/60 text-sm uppercase tracking-wider"
+          className="flex flex-wrap items-center gap-x-8 gap-y-4  py-8 font-mono text-muted-foreground border-t text-sm uppercase tracking-wider"
           initial={{ opacity: 0 }}
-          transition={{ duration: 0.7, delay: 0.5 }}
+          transition={{ delay: 0.5, duration: 0.7 }}
         >
           <div className="flex items-center gap-2">
             <CheckCircle2 className="h-4 w-4 text-redop-primary/60" /> Typed
@@ -260,35 +232,35 @@ export default function Home() {
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
             {[
               {
+                desc: "Define tools with full TS inference using Zod v4, Standard Schema, or JSON Schema.",
                 icon: <Code2 className="h-5 w-5 text-redop-primary" />,
                 title: "Typed Tools",
-                desc: "Define tools with full TS inference using Zod v4, Standard Schema, or JSON Schema.",
               },
               {
+                desc: "Add middleware for auth, rate limiting, and caching to control request flow.",
                 icon: <Shield className="h-5 w-5 text-redop-primary" />,
                 title: "Middleware",
-                desc: "Add middleware for auth, rate limiting, and caching to control request flow.",
               },
               {
+                desc: "Global and tool-local before/after hooks for analytics and observability.",
                 icon: <Activity className="h-5 w-5 text-redop-primary" />,
                 title: "Lifecycle Hooks",
-                desc: "Global and tool-local before/after hooks for analytics and observability.",
               },
               {
+                desc: "Build and share reusable framework extensions across your MCP servers.",
                 icon: <Box className="h-5 w-5 text-redop-primary" />,
                 title: "Plugin System",
-                desc: "Build and share reusable framework extensions across your MCP servers.",
               },
             ].map((feature, i) => (
               <div
-                className="rounded-xl border border-redop-border bg-redop-panel p-6 shadow-sm transition-shadow hover:shadow-md"
+                className="rounded-xl border border-redop-border bg-redop-panel p-6 "
                 key={i}
               >
                 <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-redop-soft">
                   {feature.icon}
                 </div>
                 <h3 className="mb-2 font-normal">{feature.title}</h3>
-                <p className="text-redop-ink/70 text-sm leading-relaxed">
+                <p className="text-redop-ink/70 leading-relaxed">
                   {feature.desc}
                 </p>
               </div>
@@ -339,18 +311,11 @@ export default function Home() {
       </main>
 
       {/* Footer */}
-      <footer className="z-10 mt-auto w-full border-redop-border border-t bg-redop-panel py-12">
-        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-6 px-6 md:flex-row">
-          <div className="flex items-center gap-2">
-            <div className="flex h-5 w-5 items-center justify-center rounded-sm bg-redop-ink">
-              <div className="h-1.5 w-1.5 rounded-sm bg-redop-panel" />
-            </div>
-            <span className="font-mono font-semibold text-redop-ink text-sm uppercase tracking-widest">
-              Redop
-            </span>
-          </div>
-          <div className="font-mono text-redop-ink/50 text-xs">
-            Built for Bun. MIT Licensed.
+      <footer className="z-10 mt-auto w-full border-redop-border border-t bg-redop-panel py-8">
+        <div className="mx-auto flex max-w-390 flex-col items-center justify-between gap-6 px-6 md:flex-row">
+          <Icons.Logo className="w-20" />
+          <div className="font-mono text-muted-foreground text-lg uppercase ">
+            © 2026 UseAgents. MIT Licensed.
           </div>
         </div>
       </footer>

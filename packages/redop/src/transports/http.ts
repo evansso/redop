@@ -40,6 +40,12 @@ function createSessionStore(timeoutMs: number) {
       sessions.set(id, { id, createdAt: Date.now(), lastSeen: Date.now() });
       return id;
     },
+    delete(id: string) {
+      sessions.delete(id);
+    },
+    stop() {
+      clearInterval(gcTimer);
+    },
     touch(id: string): boolean {
       const s = sessions.get(id);
       if (!s) {
@@ -47,12 +53,6 @@ function createSessionStore(timeoutMs: number) {
       }
       s.lastSeen = Date.now();
       return true;
-    },
-    delete(id: string) {
-      sessions.delete(id);
-    },
-    stop() {
-      clearInterval(gcTimer);
     },
   };
 }
@@ -69,19 +69,19 @@ function buildCorsHeaders(
 
   if (cors === true) {
     return {
-      "Access-Control-Allow-Origin": requestOrigin ?? "*",
-      "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+      "Access-Control-Allow-Credentials": "true",
       "Access-Control-Allow-Headers":
         "Content-Type, Authorization, X-API-Key, Mcp-Session-Id",
-      "Access-Control-Allow-Credentials": "true",
+      "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+      "Access-Control-Allow-Origin": requestOrigin ?? "*",
     };
   }
 
   const origins = Array.isArray(cors.origins)
     ? cors.origins
-    : cors.origins
+    : (cors.origins
       ? [cors.origins]
-      : ["*"];
+      : ["*"]);
 
   const allowedOrigin =
     requestOrigin && origins.includes(requestOrigin)
@@ -89,10 +89,7 @@ function buildCorsHeaders(
       : (origins[0] ?? "*");
 
   return {
-    "Access-Control-Allow-Origin": allowedOrigin,
-    "Access-Control-Allow-Methods": (
-      cors.methods ?? ["GET", "POST", "DELETE", "OPTIONS"]
-    ).join(", "),
+    "Access-Control-Allow-Credentials": String(cors.credentials ?? true),
     "Access-Control-Allow-Headers": (
       cors.headers ?? [
         "Content-Type",
@@ -101,7 +98,10 @@ function buildCorsHeaders(
         "Mcp-Session-Id",
       ]
     ).join(", "),
-    "Access-Control-Allow-Credentials": String(cors.credentials ?? true),
+    "Access-Control-Allow-Methods": (
+      cors.methods ?? ["GET", "POST", "DELETE", "OPTIONS"]
+    ).join(", "),
+    "Access-Control-Allow-Origin": allowedOrigin,
   };
 }
 
@@ -115,7 +115,7 @@ type ToolRunner = (
 
 function getRequestHeaders(headers: Headers): Record<string, string> {
   return Object.fromEntries(
-    Array.from(headers.entries()).map(([key, value]) => [
+    [...headers.entries()].map(([key, value]) => [
       key.toLowerCase(),
       value,
     ])
@@ -137,8 +137,8 @@ async function handleJsonRpc(
     const { name, title, version, description, icons, websiteUrl } = serverInfo;
 
     return {
-      jsonrpc: "2.0",
       id,
+      jsonrpc: "2.0",
       result: {
         protocolVersion: "2024-11-05",
         capabilities: { tools: { listChanged: false } },
@@ -161,14 +161,14 @@ async function handleJsonRpc(
 
   // ── ping ──
   if (method === "ping") {
-    return { jsonrpc: "2.0", id, result: {} };
+    return { id, jsonrpc: "2.0", result: {} };
   }
 
   // ── tools/list ──
   if (method === "tools/list") {
     return {
-      jsonrpc: "2.0",
       id,
+      jsonrpc: "2.0",
       result: {
         tools: Array.from(tools.values()).map((t) => ({
           name: t.name,
@@ -187,26 +187,26 @@ async function handleJsonRpc(
 
     if (!(toolName && tools.has(toolName))) {
       return {
-        jsonrpc: "2.0",
-        id,
         error: {
           code: -32_602,
           message: `Unknown tool: ${toolName ?? "(none)"}`,
         },
+        id,
+        jsonrpc: "2.0",
       };
     }
 
     try {
       const result = await runner(toolName, p?.arguments ?? {}, requestMeta);
       return {
-        jsonrpc: "2.0",
         id,
+        jsonrpc: "2.0",
         result: {
           content: [{ type: "text", text: JSON.stringify(result) }],
           isError: false,
         },
       };
-    } catch (err) {
+    } catch (error) {
       return {
         jsonrpc: "2.0",
         id,
@@ -214,7 +214,7 @@ async function handleJsonRpc(
           content: [
             {
               type: "text",
-              text: String(err instanceof Error ? err.message : err),
+              text: String(error instanceof Error ? error.message : error),
             },
           ],
           isError: true,
@@ -224,9 +224,9 @@ async function handleJsonRpc(
   }
 
   return {
-    jsonrpc: "2.0",
-    id,
     error: { code: -32_601, message: `Method not found: ${method}` },
+    id,
+    jsonrpc: "2.0",
   };
 }
 
@@ -258,9 +258,9 @@ function isOriginAllowed(
 
   // cors: CorsOptions  →  validate against origins allowlist
   const origins = cors.origins
-    ? Array.isArray(cors.origins)
+    ? (Array.isArray(cors.origins)
       ? cors.origins
-      : [cors.origins]
+      : [cors.origins])
     : ["*"];
 
   // "*" in the list means explicitly open — treat like dev mode
@@ -301,20 +301,20 @@ export function startHttpTransport(
 
       // ── Preflight ──
       if (req.method === "OPTIONS") {
-        return new Response(null, { status: 204, headers: corsHeaders });
+        return new Response(null, { headers: corsHeaders, status: 204 });
       }
 
       // ── Origin guard (DNS-rebinding protection) ──
       if (!isOriginAllowed(origin, opts.cors, hostname, port)) {
         return new Response(
           JSON.stringify({
-            jsonrpc: "2.0",
-            id: null,
             error: { code: -32_600, message: "Forbidden: invalid Origin" },
+            id: null,
+            jsonrpc: "2.0",
           }),
           {
-            status: 403,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 403,
           }
         );
       }
@@ -338,6 +338,11 @@ export function startHttpTransport(
         let heartbeat: ReturnType<typeof setInterval>;
 
         const stream = new ReadableStream({
+          cancel() {
+            clearInterval(heartbeat);
+            sseClients.delete(sessionId);
+            sessions.delete(sessionId);
+          },
           start(controller) {
             sseClients.set(sessionId, controller);
 
@@ -363,19 +368,14 @@ export function startHttpTransport(
               }
             }, 15_000);
           },
-          cancel() {
-            clearInterval(heartbeat);
-            sseClients.delete(sessionId);
-            sessions.delete(sessionId);
-          },
         });
 
         return new Response(stream, {
           headers: {
             ...corsHeaders,
-            "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
             Connection: "keep-alive",
+            "Content-Type": "text/event-stream",
             "Mcp-Session-Id": sessionId,
           },
         });
@@ -387,8 +387,8 @@ export function startHttpTransport(
         const contentLength = Number(req.headers.get("content-length") ?? 0);
         if (contentLength > maxBodySize) {
           return new Response("Payload Too Large", {
-            status: 413,
             headers: corsHeaders,
+            status: 413,
           });
         }
 
@@ -398,11 +398,11 @@ export function startHttpTransport(
         } catch {
           return Response.json(
             {
-              jsonrpc: "2.0",
-              id: null,
               error: { code: -32_700, message: "Parse error" },
+              id: null,
+              jsonrpc: "2.0",
             },
-            { status: 400, headers: corsHeaders }
+            { headers: corsHeaders, status: 400 }
           );
         }
 
@@ -412,14 +412,14 @@ export function startHttpTransport(
         if (!sessions.touch(incomingSessionId)) {
           return Response.json(
             {
-              jsonrpc: "2.0",
-              id: body?.id ?? null,
               error: {
                 code: -32_600,
                 message: "Unknown or expired session. Connect via SSE first.",
               },
+              id: body?.id ?? null,
+              jsonrpc: "2.0",
             },
-            { status: 400, headers: corsHeaders }
+            { headers: corsHeaders, status: 400 }
           );
         }
 
@@ -468,7 +468,7 @@ export function startHttpTransport(
         );
       }
 
-      return new Response("Not Found", { status: 404, headers: corsHeaders });
+      return new Response("Not Found", { headers: corsHeaders, status: 404 });
     },
 
     error(err) {
@@ -481,16 +481,16 @@ export function startHttpTransport(
   opts.onListen?.({ hostname, port, url });
 
   return {
-    stop() {
-      sessions.stop();
-      server.stop();
-    },
     broadcast(sessionId: string, event: string, data: unknown) {
       const ctrl = sseClients.get(sessionId);
       if (ctrl) {
         const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
         ctrl.enqueue(new TextEncoder().encode(msg));
       }
+    },
+    stop() {
+      sessions.stop();
+      server.stop();
     },
   };
 }

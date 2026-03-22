@@ -2,21 +2,25 @@
   "name": "create-redop-app",
   "version": "0.1.2",
   "description": "Scaffold a Bun-first Redop app",
-  "license": "MIT",
   "keywords": [
-    "redop",
-    "mcp",
     "bun",
-    "scaffold",
-    "cli"
+    "cli",
+    "mcp",
+    "redop",
+    "scaffold"
   ],
   "homepage": "https://redop.useagents.site",
-  "type": "module",
+  "license": "MIT",
   "bin": {
     "create-redop-app": "./dist/index.js"
   },
-  "module": "./dist/index.js",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "type": "module",
   "main": "./dist/index.js",
+  "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
@@ -24,10 +28,6 @@
       "default": "./dist/index.js"
     }
   },
-  "files": [
-    "dist",
-    "README.md"
-  ],
   "publishConfig": {
     "access": "public"
   },
@@ -38,17 +38,17 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
-  "devDependencies": {
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
-  },
   "dependencies": {
     "@clack/prompts": "^1.1.0",
     "chalk": "^5.6.2",
     "commander": "^14.0.3",
     "execa": "^9.6.1",
     "ora": "^9.3.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
   }
 }

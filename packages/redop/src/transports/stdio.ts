@@ -18,10 +18,10 @@ type ToolRunner = (
 ) => Promise<unknown>;
 
 function buildToolList(tools: Map<string, ResolvedTool>) {
-  return Array.from(tools.values()).map((t) => ({
-    name: t.name,
+  return [...tools.values()].map((t) => ({
     description: t.description ?? "",
     inputSchema: t.inputSchema,
+    name: t.name,
     ...(t.annotations ? { annotations: t.annotations } : {}),
   }));
 }
@@ -35,17 +35,17 @@ async function handleMessage(
   const { id, method, params } = msg;
 
   const respond = (result: unknown) =>
-    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\n");
+    process.stdout.write(JSON.stringify({ id, jsonrpc: "2.0", result }) + "\n");
 
   const error = (code: number, message: string) =>
     process.stdout.write(
-      JSON.stringify({ jsonrpc: "2.0", id, error: { code, message } }) + "\n"
+      JSON.stringify({ error: { code, message }, id, jsonrpc: "2.0" }) + "\n"
     );
 
   if (method === "initialize") {
     respond({
-      protocolVersion: "2024-11-05",
       capabilities: { tools: { listChanged: false } },
+      protocolVersion: "2024-11-05",
       serverInfo,
     });
     return;
@@ -81,15 +81,15 @@ async function handleMessage(
         transport: "stdio",
       });
       respond({
-        content: [{ type: "text", text: JSON.stringify(result) }],
+        content: [{ text: JSON.stringify(result), type: "text" }],
         isError: false,
       });
-    } catch (err) {
+    } catch (error) {
       respond({
         content: [
           {
             type: "text",
-            text: String(err instanceof Error ? err.message : err),
+            text: String(error instanceof Error ? error.message : error),
           },
         ],
         isError: true,
@@ -128,9 +128,9 @@ export function startStdioTransport(
       } catch {
         process.stdout.write(
           JSON.stringify({
-            jsonrpc: "2.0",
-            id: null,
             error: { code: -32_700, message: "Parse error" },
+            id: null,
+            jsonrpc: "2.0",
           }) + "\n"
         );
         continue;

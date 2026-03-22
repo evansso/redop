@@ -18,9 +18,9 @@ interface LoggerOptions {
 
 const LOG_LEVELS: Record<LogLevel, number> = {
   debug: 0,
+  error: 3,
   info: 1,
   warn: 2,
-  error: 3,
 };
 
 /**
@@ -34,7 +34,7 @@ export function logger(opts: LoggerOptions = {}): Redop {
 
   const log = (level: LogLevel, data: Record<string, unknown>) => {
     if (LOG_LEVELS[level] >= minLevel) {
-      write({ ts: new Date().toISOString(), level, ...data });
+      write({ level, ts: new Date().toISOString(), ...data });
     }
   };
 
@@ -42,8 +42,8 @@ export function logger(opts: LoggerOptions = {}): Redop {
     .onBeforeHandle(({ tool, ctx, request }) => {
       log("info", {
         event: "tool.start",
-        tool,
         requestId: ctx.requestId,
+        tool,
         transport: request.transport,
       });
     })
@@ -53,17 +53,17 @@ export function logger(opts: LoggerOptions = {}): Redop {
         : undefined;
       log("info", {
         event: "tool.end",
-        tool,
         requestId: ctx.requestId,
+        tool,
         ...(ms != null ? { ms: +ms.toFixed(2) } : {}),
       });
     })
     .onError(({ tool, error, ctx }) => {
       log("error", {
-        event: "tool.error",
-        tool,
-        requestId: ctx.requestId,
         error: error instanceof Error ? error.message : String(error),
+        event: "tool.error",
+        requestId: ctx.requestId,
+        tool,
       });
     });
 }
@@ -110,14 +110,14 @@ export function analytics(opts: AnalyticsOptions = {}): Redop {
 
     if (sink === "posthog" && apiKey) {
       fetch("https://app.posthog.com/capture/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           api_key: apiKey,
           event: "redop_tool_call",
           distinct_id: event.requestId,
           properties: event,
         }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
       }).catch(() => {});
     }
   }
@@ -135,12 +135,12 @@ export function analytics(opts: AnalyticsOptions = {}): Redop {
       const durationMs =
         startedAt != null ? +(performance.now() - startedAt).toFixed(2) : 0;
       emit({
-        tool,
         durationMs,
+        requestId: ctx.requestId,
         success:
           ((ctx as Record<string, unknown>).analyticsSuccess as boolean) ??
           true,
-        requestId: ctx.requestId,
+        tool,
       });
     });
 }
@@ -200,9 +200,9 @@ export function bearer(opts: BearerOptions = {}): Redop {
 
   return createHeaderAuthPlugin({
     ...opts,
+    aliases: ["authToken"],
     ctxKey: opts.ctxKey ?? "token",
     headerName: "authorization",
-    aliases: ["authToken"],
     transform(value) {
       const [providedScheme, ...rest] = value.trim().split(/\s+/);
       if (
@@ -229,7 +229,7 @@ function createHeaderAuthPlugin(
   }
 ): Redop {
   return middleware(async ({ ctx, request, input, tool, next }) => {
-    if (request.transport !== "http") return next();
+    if (request.transport !== "http") {return next();}
 
     const headerName = (opts.headerName ?? "authorization").toLowerCase();
     const headerValue = request.headers[headerName];
@@ -247,7 +247,9 @@ function createHeaderAuthPlugin(
       return next();
     }
 
-    const token = opts.transform ? opts.transform(headerValue) : headerValue.trim();
+    const token = opts.transform
+      ? opts.transform(headerValue)
+      : headerValue.trim();
     const valid = opts.validate
       ? await opts.validate(token, { ctx, input, request, tool })
       : token === opts.secret;
@@ -277,23 +279,25 @@ interface RateLimitOptions {
 }
 
 function parseWindow(w: number | string): number {
-  if (typeof w === "number") return w;
+  if (typeof w === "number") {return w;}
   const match = w.match(/^(\d+)(ms|s|m|h|d)$/);
-  if (!match) return 60_000;
+  if (!match) {return 60_000;}
   const n = match[1];
   const unit = match[2];
-  if (!n || !unit) return 60_000;
+  if (!n || !unit) {return 60_000;}
   const multipliers: Record<string, number> = {
+    d: 86_400_000,
+    h: 3_600_000,
+    m: 60_000,
     ms: 1,
     s: 1_000,
-    m: 60_000,
-    h: 3_600_000,
-    d: 86_400_000,
   };
-  return parseInt(n) * (multipliers[unit] ?? 1);
+  return Number.parseInt(n) * (multipliers[unit] ?? 1);
 }
 
-function defaultRateLimitKey(event: ToolHandlerEvent<unknown, Context>): string {
+function defaultRateLimitKey(
+  event: ToolHandlerEvent<unknown, Context>
+): string {
   return (
     event.request.ip ??
     event.request.headers["x-forwarded-for"]?.split(",")[0]?.trim() ??
@@ -370,7 +374,7 @@ export function cache(opts: CacheOptions = {}): Redop {
     }
 
     const result = await next();
-    store.set(key, { result, expiresAt: Date.now() + ttl });
+    store.set(key, { expiresAt: Date.now() + ttl, result });
     return result;
   });
 }

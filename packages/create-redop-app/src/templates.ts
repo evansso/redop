@@ -5,8 +5,8 @@ function toPackageName(name: string) {
     name
       .trim()
       .toLowerCase()
-      .replace(/[^a-z0-9-_]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "redop-app"
+      .replaceAll(/[^a-z0-9-_]+/g, "-")
+      .replaceAll(/^-+|-+$/g, "") || "redop-app"
   );
 }
 
@@ -17,10 +17,16 @@ function toServerName(name: string) {
 function renderPackageJson(options: ResolvedOptions) {
   return JSON.stringify(
     {
+      dependencies: {
+        "@useagents/redop": "latest",
+        zod: "latest",
+      },
+      devDependencies: {
+        "@types/bun": "latest",
+        typescript: "latest",
+      },
       name: toPackageName(options.appName),
-      version: "0.1.0",
       private: true,
-      type: "module",
       scripts: {
         build: "bun build ./src/index.ts --outdir ./dist --target node",
         dev: "bun run src/index.ts",
@@ -30,14 +36,8 @@ function renderPackageJson(options: ResolvedOptions) {
             : "bun run src/index.ts",
         typecheck: "tsc --noEmit",
       },
-      dependencies: {
-        "@useagents/redop": "latest",
-        zod: "latest",
-      },
-      devDependencies: {
-        "@types/bun": "latest",
-        typescript: "latest",
-      },
+      type: "module",
+      version: "0.1.0",
     },
     null,
     2
@@ -71,8 +71,8 @@ function renderTsconfig() {
 
         outDir: "./dist",
       },
-      include: ["src/**/*"],
       exclude: ["node_modules", "dist"],
+      include: ["src/**/*"],
     },
     null,
     2
@@ -203,26 +203,31 @@ function renderWarnings(options: ResolvedOptions) {
 
 function deploySection(deploy: DeployTarget) {
   switch (deploy) {
-    case "none":
+    case "none": {
       return `## Deploy on Bun runtime
 
 Run this app as a Bun HTTP or stdio service. For HTTP, bind to \`0.0.0.0\` and read \`PORT\` from the environment.`;
-    case "railway":
+    }
+    case "railway": {
       return `## Deploy on Railway
 
 Use Railway as a long-running Bun service. Set your start command to \`bun run src/index.ts\` and point health checks at \`/mcp/health\` for HTTP apps.`;
-    case "fly-io":
+    }
+    case "fly-io": {
       return `## Deploy on Fly.io
 
 This starter includes a Dockerfile and \`fly.toml\`. Deploy with \`fly launch\` and \`fly deploy\`.`;
-    case "vercel":
+    }
+    case "vercel": {
       return `## Deploy on Vercel
 
 This preset adds \`vercel.json\`, but Vercel uses a function model. Treat this as a starting point, not a drop-in match for the default Redop server shape.`;
-    default:
+    }
+    default: {
       return `## Deploy
 
 No deploy files were generated for this starter.`;
+    }
   }
 }
 
@@ -277,22 +282,22 @@ ${deploySection(options.deploy)}
 
 export function buildFiles(options: ResolvedOptions): GeneratedFile[] {
   const files: GeneratedFile[] = [
-    { path: ".gitignore", content: renderGitignore() },
-    { path: "README.md", content: renderReadme(options) },
-    { path: "package.json", content: renderPackageJson(options) + "\n" },
-    { path: "tsconfig.json", content: renderTsconfig() + "\n" },
-    { path: "src/index.ts", content: renderIndexTs(options) },
+    { content: renderGitignore(), path: ".gitignore" },
+    { content: renderReadme(options), path: "README.md" },
+    { content: renderPackageJson(options) + "\n", path: "package.json" },
+    { content: renderTsconfig() + "\n", path: "tsconfig.json" },
+    { content: renderIndexTs(options), path: "src/index.ts" },
   ];
 
   if (options.deploy === "fly-io") {
     files.push(
-      { path: "Dockerfile", content: renderDockerfile() },
-      { path: "fly.toml", content: renderFlyToml(options) }
+      { content: renderDockerfile(), path: "Dockerfile" },
+      { content: renderFlyToml(options), path: "fly.toml" }
     );
   }
 
   if (options.deploy === "vercel") {
-    files.push({ path: "vercel.json", content: renderVercelJson() + "\n" });
+    files.push({ content: renderVercelJson() + "\n", path: "vercel.json" });
   }
 
   return files;

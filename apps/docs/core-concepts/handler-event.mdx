@@ -10,7 +10,7 @@ Handlers, middleware, and hooks all work from the same request-aware event model
 ```ts
 handler: ({ input, ctx, request, tool }) => {
   return { input, tool, transport: request.transport };
-}
+};
 ```
 
 ## `input`

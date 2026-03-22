@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { z } from "zod";
 
 import type { RequestMeta } from "../src/index";
@@ -29,11 +30,6 @@ async function runTool(
 describe("Standard Schema adapter", () => {
   test("infers handler event input from Zod v4 output types", async () => {
     const app = new Redop().tool("typed_defaults", {
-      input: z.object({
-        limit: z.number().default(10),
-        page: z.coerce.number(),
-        query: z.string().optional(),
-      }),
       handler: ({ input, request }) => {
         expectType<number>(input.limit);
         expectType<number>(input.page);
@@ -42,6 +38,11 @@ describe("Standard Schema adapter", () => {
 
         return input;
       },
+      input: z.object({
+        limit: z.number().default(10),
+        page: z.coerce.number(),
+        query: z.string().optional(),
+      }),
     });
 
     expect(await runTool(app, "typed_defaults", { page: "2" })).toEqual({
@@ -53,29 +54,29 @@ describe("Standard Schema adapter", () => {
 
   test("uses Zod v4 JSON Schema generation for tool metadata", () => {
     const app = new Redop().tool("typed_defaults", {
+      handler: ({ input }) => ({ limit: input.limit, page: input.page }),
       input: z.object({
         limit: z.number().default(10),
         page: z.coerce.number(),
       }),
-      handler: ({ input }) => ({ limit: input.limit, page: input.page }),
     });
 
     expect(app.getTool("typed_defaults")?.inputSchema).toMatchObject({
       $schema: "http://json-schema.org/draft-07/schema#",
-      type: "object",
       properties: {
         limit: { default: 10, type: "number" },
         page: { type: "number" },
       },
+      type: "object",
     });
   });
 
   test("preserves validation issues when parsing fails", async () => {
     const app = new Redop().tool("typed_defaults", {
+      handler: ({ input }) => ({ page: input.page }),
       input: z.object({
         page: z.coerce.number(),
       }),
-      handler: ({ input }) => ({ page: input.page }),
     });
 
     try {
@@ -83,7 +84,7 @@ describe("Standard Schema adapter", () => {
       throw new Error("Expected validation to fail");
     } catch (error) {
       const validationError = error as Error & {
-        issues?: Array<{ message: string; path?: PropertyKey[] }>;
+        issues?: { message: string; path?: PropertyKey[] }[];
       };
 
       expect(validationError.message).toContain(
@@ -96,6 +97,7 @@ describe("Standard Schema adapter", () => {
 
   test("keeps plain JSON Schema tools working", async () => {
     const app = new Redop().tool("echo", {
+      handler: ({ input }) => input.message,
       input: {
         type: "object",
         properties: {
@@ -103,57 +105,61 @@ describe("Standard Schema adapter", () => {
         },
         required: ["message"],
       },
-      handler: ({ input }) => input.message,
     });
 
     expect(await runTool(app, "echo", { message: "hello" })).toBe("hello");
   });
 
   test("middleware can read typed input and request metadata", async () => {
-    const seen: Array<unknown> = [];
+    const seen: unknown[] = [];
 
     const app = new Redop()
       .use(
         middleware<{ page: number }>(async ({ input, request, next }) => {
           expectType<number>(input.page);
           seen.push({
-            page: input.page,
             ip: request.ip,
+            page: input.page,
             url: request.url,
           });
           return next();
         })
       )
       .tool("typed_defaults", {
-        input: z.object({
-          page: z.coerce.number(),
-        }),
         handler: ({ input, request }) => ({
           page: input.page,
           ip: request.ip,
           hasRaw: request.raw instanceof Request,
         }),
+        input: z.object({
+          page: z.coerce.number(),
+        }),
       });
 
     expect(
-      await runTool(app, "typed_defaults", { page: "3" }, {
-        headers: { authorization: "Bearer dev-secret" },
-        ip: "127.0.0.1",
-        method: "POST",
-        raw: new Request("http://localhost:3000/mcp", { method: "POST" }),
-        transport: "http",
-        url: "http://localhost:3000/mcp",
-      })
+      await runTool(
+        app,
+        "typed_defaults",
+        { page: "3" },
+        {
+          headers: { authorization: "Bearer dev-secret" },
+          ip: "127.0.0.1",
+          method: "POST",
+          raw: new Request("http://localhost:3000/mcp", { method: "POST" }),
+          transport: "http",
+          url: "http://localhost:3000/mcp",
+        }
+      )
     ).toEqual({
-      page: 3,
-      ip: "127.0.0.1",
       hasRaw: true,
+      ip: "127.0.0.1",
+      page: 3,
     });
 
     expect(seen).toEqual([
       {
-        page: 3,
         ip: "127.0.0.1",
+        page: 3,
         url: "http://localhost:3000/mcp",
       },
     ]);
@@ -176,9 +182,13 @@ describe("Standard Schema adapter", () => {
         })
       )
       .tool("typed_defaults", {
-        input: z.object({
-          page: z.coerce.number(),
-        }),
+        after: ({ input, result, request }) => {
+          expectType<number>(input.page);
+          expectType<number>(result.page);
+          expectType<boolean>(result.ok);
+          expectType<"stdio" | "http" | "ws">(request.transport);
+          order.push("tool-after");
+        },
         before: ({ input, request }) => {
           expectType<number>(input.page);
           expectType<"stdio" | "http" | "ws">(request.transport);
@@ -188,13 +198,9 @@ describe("Standard Schema adapter", () => {
           order.push("handler");
           return { page: input.page, ok: true };
         },
-        after: ({ input, result, request }) => {
-          expectType<number>(input.page);
-          expectType<number>(result.page);
-          expectType<boolean>(result.ok);
-          expectType<"stdio" | "http" | "ws">(request.transport);
-          order.push("tool-after");
-        },
+        input: z.object({
+          page: z.coerce.number(),
+        }),
       });
 
     expect(await runTool(app, "typed_defaults", { page: "4" })).toEqual({
@@ -216,15 +222,15 @@ describe("Standard Schema adapter", () => {
     const seen: string[] = [];
 
     const failingHandler = new Redop().tool("boom_handler", {
+      after: () => {
+        seen.push("handler-after");
+      },
       before: () => {
         seen.push("handler-before");
       },
       handler: () => {
         seen.push("handler");
         throw new Error("handler failed");
-      },
-      after: () => {
-        seen.push("handler-after");
       },
     });
 
@@ -243,15 +249,15 @@ describe("Standard Schema adapter", () => {
         })
       )
       .tool("boom_middleware", {
+        after: () => {
+          seen.push("middleware-after");
+        },
         before: () => {
           seen.push("middleware-before");
         },
         handler: () => {
           seen.push("middleware-handler");
           return { ok: true };
-        },
-        after: () => {
-          seen.push("middleware-after");
         },
       });
 
