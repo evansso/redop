@@ -51,10 +51,24 @@ function renderTsconfig() {
         target: "ESNext",
         module: "ESNext",
         moduleResolution: "bundler",
-        types: ["bun-types"],
+        moduleDetection: "force",
+        allowJs: true,
+
+        // Explicitly load @types/bun
+        types: ["bun"],
+
         strict: true,
         noUncheckedIndexedAccess: true,
+        noImplicitOverride: true,
         skipLibCheck: true,
+
+        // Bun handles the "emit", so we just type-check
+        noEmit: true,
+
+        // Standard for modern Bun/Bundler setups
+        allowImportingTsExtensions: true,
+        verbatimModuleSyntax: true,
+
         outDir: "./dist",
       },
       include: ["src/**/*"],
@@ -70,10 +84,12 @@ function renderGitignore() {
 }
 
 function renderIndexTs(options: ResolvedOptions) {
-  const appHeader = `import { Redop } from "redop";
+  if (options.transport === "stdio") {
+    return `
+    import { Redop } from "@useagents/redop";
 import { z } from "zod";
 
-const app = new Redop({
+new Redop({
   name: "${toServerName(options.appName)}",
   version: "0.1.0",
 }).tool("ping", {
@@ -86,19 +102,30 @@ const app = new Redop({
     message: input.message,
     ts: Date.now(),
   }),
-});
-`;
-
-  if (options.transport === "stdio") {
-    return `${appHeader}
-app.listen({
+}).listen({
   transport: "stdio",
 });
 `;
   }
 
-  return `${appHeader}
-app.listen({
+  return `
+import { Redop } from "@useagents/redop";
+import { z } from "zod";
+
+new Redop({
+  name: "${toServerName(options.appName)}",
+  version: "0.1.0",
+}).tool("ping", {
+  description: "Health check tool",
+  input: z.object({
+    message: z.string().default("pong"),
+  }),
+  handler: ({ input }) => ({
+    ok: true,
+    message: input.message,
+    ts: Date.now(),
+  }),
+}).listen({
   port: Number(process.env.PORT ?? 3000),
   hostname: "0.0.0.0",
   cors: true,
