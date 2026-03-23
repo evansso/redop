@@ -78,7 +78,14 @@ export class Redop<C extends Context = Context> {
   private _middlewares: ToolMiddleware<unknown, unknown, C>[] = [];
   private _inputParsers = new Map<string, InputParser>();
   private _schemaAdapter?: SchemaAdapter;
-  private _serverInfo: Required<ServerInfoOptions> = { ...DEFAULT_SERVER_INFO };
+  private _serverInfo: Required<ServerInfoOptions> = {
+    ...DEFAULT_SERVER_INFO,
+    description: "",
+    icons: [],
+    instructions: "",
+    title: "",
+    websiteUrl: "",
+  };
   private _prefix = "";
 
   /**
@@ -359,12 +366,12 @@ export class Redop<C extends Context = Context> {
     } catch (error) {
       for (const hook of this._hooks.error) {
         await hook({
-          tool: toolName,
           ctx,
           error: error,
           input,
           params: input,
           request,
+          tool: toolName,
         });
       }
       throw error;
