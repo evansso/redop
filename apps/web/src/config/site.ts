@@ -1,6 +1,6 @@
 const url =
   process.env.NODE_ENV === "production"
-    ? "https://useagents.site"
+    ? "https://redop.useagents.site"
     : "http://localhost:3000";
 
 export const siteConfig = {
