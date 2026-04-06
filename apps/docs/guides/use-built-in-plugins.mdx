@@ -8,9 +8,9 @@ Redop ships with a small set of built-in plugins so you can add common behavior 
 ## Current built-in plugin surface
 
 ```ts
-import { apiKey, logger, Redop } from "@useagents/redop";
+import { apiKey, logger, Redop } from "@redopjs/redop";
 
-new Redop({ name: "plugin-demo" })
+new Redop({ serverInfo: { name: "plugin-demo" } })
   .use(logger({ level: "info" }))
   .use(apiKey({ key: process.env.API_SECRET }));
 ```

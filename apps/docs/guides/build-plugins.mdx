@@ -1,0 +1,149 @@
+---
+title: Build Plugins
+description: Build reusable Redop plugins that package hooks, middleware, tools, resources, and prompts into one unit.
+---
+
+Use a plugin when you want one reusable unit that can be attached to multiple Redop servers.
+
+## What a plugin should own
+
+A good plugin owns one clear concern such as:
+
+- auth
+- logging
+- timing and analytics
+- resource registration
+- a domain-specific bundle of tools and prompts
+
+If the behavior only wraps one request and does not need packaging, prefer plain middleware instead.
+
+When the plugin is doing analytics, logging, or metrics after a response is sent, prefer `onAfterResponse(...)`. Use `onAfterHandle(...)` only when the plugin still needs to inspect or replace a successful result before the client receives it.
+
+## Start with `definePlugin(...)`
+
+```ts
+import { definePlugin, Redop } from "@redopjs/redop";
+
+const timingPlugin = definePlugin({
+  name: "timing",
+  version: "0.1.0",
+  description: "Measure tool duration",
+  setup() {
+    return new Redop()
+      .onBeforeHandle(({ ctx }) => {
+        (ctx as Record<string, unknown>).startedAt = performance.now();
+      })
+      .onAfterHandle(({ ctx, tool }) => {
+        const startedAt = (ctx as Record<string, unknown>).startedAt as number | undefined;
+        if (startedAt == null) {
+          return;
+        }
+
+        const ms = +(performance.now() - startedAt).toFixed(2);
+        console.log(`[timing] ${tool} finished in ${ms}ms`);
+      });
+  },
+});
+```
+
+`definePlugin(...)` returns a factory. Call that factory and pass the result to `.use(...)`.
+
+## Use the plugin in a server
+
+```ts
+import { Redop } from "@redopjs/redop";
+
+new Redop({
+  serverInfo: {
+    name: "plugin-demo",
+  },
+}).use(timingPlugin({}));
+```
+
+## What a plugin can register
+
+Inside `setup()`, return a `Redop` instance that registers any combination of:
+
+- middleware
+- lifecycle hooks
+- tools
+- resources
+- prompts
+
+## Build a plugin with tools and prompts
+
+```ts
+import { definePlugin, Redop } from "@redopjs/redop";
+
+const notesPlugin = definePlugin({
+  name: "notes",
+  version: "0.1.0",
+  setup() {
+    return new Redop()
+      .tool("notes_list", {
+        description: "List notes",
+        handler: () => ({ notes: [] }),
+      })
+      .prompt("notes_review", {
+        description: "Review note changes",
+        handler: () => [
+          {
+            role: "user",
+            content: {
+              type: "text",
+              text: "Review the recent note changes.",
+            },
+          },
+        ],
+      });
+  },
+});
+```
+
+## Add plugin options
+
+Use plugin options when consumers need to configure behavior.
+
+```ts
+import { definePlugin, Redop } from "@redopjs/redop";
+
+const prefixPlugin = definePlugin({
+  name: "prefix",
+  version: "0.1.0",
+  setup(options: { prefix: string }) {
+    return new Redop().onAfterHandle(({ result }) => {
+      if (typeof result === "string") {
+        return `${options.prefix}${result}`;
+      }
+    });
+  },
+});
+```
+
+## Practical rules
+
+- keep plugin ownership narrow
+- avoid hidden side effects outside the concern the plugin owns
+- use middleware for request flow control
+- use hooks for observation and post-processing
+- use tools, resources, and prompts only when the plugin should extend the MCP surface
+
+## Choose plugin vs middleware
+
+Use middleware when:
+
+- the behavior only wraps execution
+- you do not need packaging or reuse across servers
+
+Use a plugin when:
+
+- the behavior should be reused across projects
+- you need multiple registrations in one package
+- you want a stable composition unit for teams or publishing
+
+## Related pages
+
+- [Build a Plugin or Middleware](/guides/build-plugin-or-middleware)
+- [Use built-in plugins](/guides/use-built-in-plugins)
+- [Built-in plugins](/reference/built-in-plugins)
+- [Examples: Plugins and Middleware](/examples/plugins)

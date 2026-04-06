@@ -1,0 +1,309 @@
+---
+title: Plugins
+description: Understand how Redop plugins work, how they pass request data through context, and how to build reusable plugins with middleware, hooks, tools, resources, and prompts.
+---
+
+Use this page when you want to build a reusable Redop plugin and need a clear mental model for context, `.use(...)`, and data flow.
+
+## What a plugin is
+
+A Redop plugin is a packaged `Redop` instance.
+
+You create it with `definePlugin(...)`, return a `Redop` instance from `setup(...)`, and attach it to a server with `.use(...)`.
+
+At runtime, a plugin is not a separate nested app. Redop merges the plugin's registrations into the host server.
+
+That means a plugin can contribute:
+
+- middleware
+- lifecycle hooks
+- tools
+- resources
+- prompts
+
+## How `.use(...)` works
+
+When you call `.use(pluginInstance)`, Redop merges the plugin into the main server.
+
+In practice, that means:
+
+- plugin middleware runs as part of the host server's execution flow
+- plugin hooks observe the same requests as the host server
+- plugin tools, resources, and prompts become part of the host server's MCP surface
+- plugin middleware can write request-scoped data to `ctx`, and later handlers can read that data
+
+So the core plugin mental model is:
+
+1. a request enters the host server
+2. plugin middleware or hooks run
+3. the plugin writes values to `ctx`
+4. host handlers or plugin handlers read those values later in the same request
+
+## When to use a plugin
+
+Use a plugin when:
+
+- the behavior should be reused across multiple servers or projects
+- you want one installable unit for middleware, hooks, and registrations
+- you want a stable extension point for a team or package
+
+Prefer plain middleware when:
+
+- the behavior only wraps execution
+- you do not need packaging or reuse
+
+Prefer a feature module with `.use(...)` when:
+
+- the behavior belongs to one server only
+- you are organizing your own app into folders
+- you do not need to publish or share the behavior
+
+## Build a minimal plugin
+
+Start with `definePlugin(...)`.
+
+```ts
+import { definePlugin, Redop } from "@redopjs/redop";
+
+const timingPlugin = definePlugin({
+  name: "timing",
+  version: "0.1.0",
+  description: "Measure request duration",
+  setup() {
+    return new Redop<{ startedAt?: number }>()
+      .onBeforeHandle(({ ctx }) => {
+        ctx.startedAt = performance.now();
+      })
+      .onAfterHandle(({ ctx, tool }) => {
+        const startedAt = ctx.startedAt;
+
+        if (startedAt == null) {
+          return;
+        }
+
+        const ms = +(performance.now() - startedAt).toFixed(2);
+        console.log(`[timing] ${tool} finished in ${ms}ms`);
+      });
+  },
+});
+```
+
+Then attach it to a server:
+
+```ts
+import { Redop } from "@redopjs/redop";
+
+new Redop({
+  serverInfo: {
+    name: "plugin-demo",
+    version: "0.1.0",
+  },
+}).use(timingPlugin({}));
+```
+
+## Pass request data through context
+
+If a plugin needs to pass request-scoped data to handlers, write that data to `ctx` inside middleware or hooks.
+
+This is the most important plugin pattern in Redop.
+
+```ts
+import { definePlugin, Redop } from "@redopjs/redop";
+
+const tenantPlugin = definePlugin({
+  name: "tenant",
+  version: "0.1.0",
+  description: "Read tenant data from request headers",
+  setup() {
+    return new Redop<{ tenantId: string }>().middleware(
+      async ({ ctx, request, next }) => {
+      const tenantId = request.headers["x-tenant-id"];
+
+      if (!tenantId) {
+        throw new Error("Missing x-tenant-id header");
+      }
+
+        ctx.tenantId = tenantId;
+        return next();
+      }
+    );
+  },
+});
+```
+
+Then a handler can read that value later in the same request:
+
+```ts
+import { Redop } from "@redopjs/redop";
+
+new Redop({
+  serverInfo: {
+    name: "tenant-demo",
+    version: "0.1.0",
+  },
+})
+  .use(tenantPlugin({}))
+  .tool("whoami", {
+    description: "Return tenant information for the current request",
+    handler: ({ ctx }) => ({
+      tenantId: ctx.tenantId,
+    }),
+  });
+```
+
+## What data belongs in `ctx`
+
+Use `ctx` for data that should live for one request only.
+
+Good examples:
+
+- authenticated user or tenant information
+- request IDs and correlation IDs
+- rate-limit or authorization decisions
+- timing data
+- values derived from headers or transport metadata
+
+Avoid putting long-lived global state in `ctx`. Use normal module variables, a database client, or another service object for shared application state.
+
+## Build a plugin that ships tools too
+
+A plugin can do more than middleware. It can also extend the MCP surface.
+
+```ts
+import { definePlugin, Redop } from "@redopjs/redop";
+
+const notesPlugin = definePlugin({
+  name: "notes",
+  version: "0.1.0",
+  description: "Provide notes tools and resources",
+  setup() {
+    return new Redop()
+      .tool("notes.list", {
+        description: "List notes",
+        handler: () => ({
+          notes: [],
+        }),
+      })
+      .resource("notes://{id}", {
+        name: "Note",
+        handler: async ({ params }) => ({
+          type: "text",
+          text: JSON.stringify({ id: params.id }),
+        }),
+      });
+  },
+});
+```
+
+This is useful when a plugin owns one reusable concern and that concern includes both behavior and MCP registrations.
+
+## Plugin options
+
+Use plugin options when consumers need to configure behavior.
+
+```ts
+import { definePlugin, Redop } from "@redopjs/redop";
+
+const headerPlugin = definePlugin({
+  name: "header-value",
+  version: "0.1.0",
+  description: "Store one header value on request context",
+  setup(options: { contextKey: string; headerName: string }) {
+    return new Redop().middleware(async ({ ctx, request, next }) => {
+      const value = request.headers[options.headerName.toLowerCase()];
+
+      if (value) {
+        (ctx as Record<string, unknown>)[options.contextKey] = value;
+      }
+
+      return next();
+    });
+  },
+});
+```
+
+Usage:
+
+```ts
+new Redop({
+  serverInfo: {
+    name: "headers-demo",
+  },
+}).use(
+  headerPlugin({
+    contextKey: "workspaceId",
+    headerName: "x-workspace-id",
+  })
+);
+```
+
+## Built-in plugins already use this pattern
+
+The built-in auth helpers follow the same model.
+
+They validate request data in middleware and store the result on `ctx` so later handlers can use it.
+
+For example:
+
+- `apiKey(...)` stores the validated key on `ctx`
+- `bearer(...)` stores the parsed token on `ctx`
+- `jwt(...)` and `oauth(...)` store verified auth payloads on `ctx`
+
+So if you understand "middleware writes to `ctx`, handler reads from `ctx`", you understand the core plugin data flow in Redop.
+
+## Typed plugin context
+
+If a plugin declares its context shape, `.use(...)` carries that shape into the host app.
+
+That means this pattern is now valid:
+
+```ts
+const tenantPlugin = definePlugin<{}, { tenantId: string }>({
+  name: "tenant",
+  version: "0.1.0",
+  setup() {
+    return new Redop<{ tenantId: string }>().middleware(
+      async ({ ctx, next }) => {
+        ctx.tenantId = "acme";
+        return next();
+      }
+    );
+  },
+});
+
+new Redop()
+  .use(tenantPlugin({}))
+  .tool("whoami", {
+    handler: ({ ctx }) => ({
+      tenantId: ctx.tenantId,
+    }),
+  });
+```
+
+Plugin `derive(...)` functions are also merged by `.use(...)`.
+
+The remaining limitation is dynamic keys. If your plugin lets consumers choose a runtime key name such as `options.contextKey`, TypeScript cannot infer that property statically, so a cast is still normal in that one case.
+
+## Practical plugin design rules
+
+- Keep plugin ownership narrow and obvious.
+- Use middleware for request flow control and context decoration.
+- Use hooks for observation and post-processing.
+- Use `onAfterResponse(...)` for analytics, metrics, or logging that should happen after the response is written.
+- Ship tools, resources, or prompts from a plugin only when the plugin truly owns that MCP surface.
+- Prefer explicit names such as `notes.list` or `billing.invoice.create` for tools that a plugin registers.
+
+## Common mistakes
+
+- Building a plugin when plain middleware would be enough.
+- Hiding unrelated behavior inside one plugin.
+- Treating a plugin like a separate nested server instead of a merged extension.
+- Using a dynamic runtime key and expecting TypeScript to know that property name automatically.
+
+## Related pages
+
+- [Build Plugins](/guides/build-plugins)
+- [Build a Plugin or Middleware](/guides/build-plugin-or-middleware)
+- [Built-in plugins](/reference/built-in-plugins)
+- [Examples: Plugins and Middleware](/examples/plugins)
+- [Middleware vs Hooks vs Plugins](/concepts/composition)

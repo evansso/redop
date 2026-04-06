@@ -1,31 +1,33 @@
 ---
-title: Redop Reference
-description: Reference for the Redop constructor, its chainable methods, and the public introspection helpers.
+title: Redop API Reference
+description: Reference for the Redop constructor, constructor options, chainable methods, and introspection helpers.
 ---
+
+`Redop` is the main class for building MCP servers. Use the constructor for server metadata and top-level behavior, then register tools, resources, prompts, hooks, middleware, and plugins.
 
 ## Constructor
 
 ```ts
 new Redop({
-  name: "my-mcp-server",
-  title: "My MCP Server",
-  version: "0.1.0",
-  description: "Does X and Y.",
-  icons: [
-    {
-      src: "https://example.com/icon.svg",
-      mimeType: "image/svg+xml",
-      sizes: ["any"],
-    },
-  ],
-  websiteUrl: "https://example.com/docs",
-  instructions: "Always call search before fetch.",
+  serverInfo: {
+    name: "my-mcp-server",
+    title: "My MCP Server",
+    version: "0.1.0",
+    description: "Does X and Y.",
+    websiteUrl: "https://example.com/docs",
+    instructions: "Always call search before fetch.",
+    icons: [
+      {
+        src: "https://example.com/icon.svg",
+        mimeType: "image/svg+xml",
+      },
+    ],
+  },
   capabilities: {
     tools: true,
     resources: true,
     prompts: true,
   },
-  schemaAdapter,
 });
 ```
 
@@ -33,15 +35,45 @@ new Redop({
 
 | Option | Purpose |
 | ------ | ------- |
-| `name` | Machine-readable server name. Defaults to `"redop"`. |
-| `title` | Human-readable display name. |
-| `version` | Version returned during initialize. Defaults to `"0.1.0"`. |
-| `description` | Short server description for client UIs. |
-| `icons` | Optional icon metadata for client UIs. |
-| `websiteUrl` | Canonical site or docs URL. |
-| `instructions` | Guidance surfaced to MCP clients during initialize. |
+| `serverInfo` | Grouped MCP-facing metadata returned during `initialize`. |
 | `capabilities` | Enable or disable advertised MCP capabilities. |
-| `schemaAdapter` | Override schema auto-detection with a custom adapter. |
+
+## `serverInfo` fields
+
+| Field | Purpose |
+| ----- | ------- |
+| `name` | Machine-readable server name. Defaults to `"redop"`. |
+| `title` | Optional human-readable display name. |
+| `version` | Version returned during `initialize`. Defaults to `"0.1.0"`. |
+| `description` | Short server description for supporting client UIs. |
+| `icons` | Optional icon metadata from the MCP implementation schema. |
+| `websiteUrl` | Optional canonical site or docs URL. |
+| `instructions` | Optional usage guidance returned as top-level `initialize.instructions`. |
+
+## Icon shape
+
+`icons` accepts an array of objects with this shape:
+
+```ts
+{
+  src: "https://example.com/icon.svg",
+  mimeType: "image/svg+xml",
+  sizes: ["any"],
+  theme: "light",
+}
+```
+
+Notes:
+
+- `src` is required and should usually be an `https:` URL or `data:` URI.
+- `mimeType` is optional, but common values are `image/png`, `image/jpeg`, `image/jpg`, `image/svg+xml`, and `image/webp`.
+- `sizes` supports values like `["48x48"]`, `["48x48", "96x96"]`, or `["any"]` for scalable icons.
+- `theme` can be `"light"` or `"dark"`.
+- Clients should treat icon URLs and bytes as untrusted input and apply normal fetch/render safety checks.
+
+## Deprecated top-level fields
+
+Redop still accepts top-level `name`, `title`, `version`, `description`, `icons`, `websiteUrl`, and `instructions`, but they are deprecated. Put new docs and new app code under `serverInfo`.
 
 ## Main methods
 
@@ -51,13 +83,13 @@ new Redop({
 | `resource(uri, def)` | Register a static or template resource. |
 | `prompt(name, def)` | Register an MCP prompt. |
 | `derive(fn)` | Add reusable request context before hooks and handlers run. |
-| `group(prefix, callback)` | Register namespaced tools, resources, and prompts under a shared prefix. |
-| `use(plugin)` | Merge another `Redop` instance as a plugin. |
+| `use(plugin)` | Merge another `Redop` instance as a feature module or plugin. |
 | `middleware(fn)` | Register global middleware. |
 | `onTransform(fn)` | Mutate raw params before schema parsing. |
 | `onParse(fn)` | Replace parsed input before before-hooks and middleware. |
-| `onBeforeHandle(fn)` | Observe each request before middleware and handlers. |
-| `onAfterHandle(fn)` | Observe successful results after tool-local `after` hooks. |
+| `onBeforeHandle(fn)` | Observe each tool, resource, or prompt request before middleware and handlers. |
+| `onAfterHandle(fn)` | Observe successful results after local `after` hooks and before the response is written. |
+| `onAfterResponse(fn)` | Observe tool, resource, and prompt executions after the response is written. |
 | `onError(fn)` | Observe thrown errors from middleware or handlers. |
 | `notifyResourceChanged(uri)` | Push `resources/updated` notifications to subscribed clients. |
 | `listen()` / `listen(3000)` / `listen(opts)` | Start the HTTP or stdio transport. |
@@ -72,8 +104,21 @@ new Redop({
 - `getPrompt(name)` returns the resolved prompt metadata
 - `serverInfo` returns the MCP server identity used during initialize
 
-## See also
+## Composition pattern
 
+Use `.use(...)` as the main way to compose a larger server.
+
+In practice, that usually means:
+
+- create one `Redop` instance per feature folder
+- register that feature's tools, resources, prompts, hooks, or middleware there
+- import those modules into the root server
+- attach them with `.use(...)`
+
+## Related pages
+
+- [onAfterResponse](/documentation/on-after-response)
+- [Compose Features with use](/guides/compose-features-with-use)
 - [Tool definition](/reference/tool-definition)
 - [Listen options](/reference/listen-options)
 - [Request and context reference](/reference/request-context)

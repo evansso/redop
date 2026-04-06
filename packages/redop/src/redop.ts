@@ -7,16 +7,21 @@ import { startHttpTransport } from "./transports/http";
 import { startStdioTransport } from "./transports/stdio";
 import type {
   AfterHook,
+  AfterResponseHook,
   BeforeHook,
   CapabilityOptions,
   Context,
   ErrorHook,
+  InferPromptInput,
   InferSchemaOutput,
   ListenOptions,
+  Middleware,
   ParseHook,
   PluginDefinition,
   PluginFactory,
   PluginMeta,
+  PromptArgument,
+  PromptContext,
   PromptDef,
   PromptGetEvent,
   PromptHandlerResult,
@@ -25,13 +30,14 @@ import type {
   ResolvedPrompt,
   ResolvedResource,
   ResolvedTool,
+  ResourceContents,
+  ResourceContext,
   ResourceDef,
   ResourceReadEvent,
-  SchemaAdapter,
+  ResourceUriParams,
   ServerInfoOptions,
   ToolDef,
   ToolHandlerEvent,
-  ToolMiddleware,
   TransformHook,
 } from "./types";
 
@@ -39,17 +45,30 @@ import type {
 
 interface HookRegistry {
   after: AfterHook[];
+  afterResponse: AfterResponseHook[];
   before: BeforeHook[];
   error: ErrorHook[];
   parse: ParseHook[];
   transform: TransformHook[];
 }
 
+type DeferredExecution<R> =
+  | {
+      afterResponse: () => Promise<void>;
+      ok: true;
+      result: R;
+    }
+  | {
+      afterResponse: () => Promise<void>;
+      error: unknown;
+      ok: false;
+    };
+
 type InputParser = (
   input: Record<string, unknown>
 ) => unknown | Promise<unknown>;
-type DeriveFn<C extends Context> = (
-  base: { request: RequestMeta } & Context
+type DeriveFn<C extends Record<string, unknown>> = (
+  base: { request: RequestMeta } & Context<C>
 ) => Record<string, unknown> | Promise<Record<string, unknown>>;
 
 // SSE broadcast callback injected by the HTTP transport so resource change
@@ -57,6 +76,169 @@ type DeriveFn<C extends Context> = (
 type BroadcastFn = (sessionId: string, data: unknown) => void;
 
 const DEFAULTS = { name: "redop", version: "0.1.0" } as const;
+const MCP_IDENTIFIER = /^[A-Za-z0-9._/-]+$/;
+const MAX_MCP_IDENTIFIER_LENGTH = 64;
+
+function failValidation(message: string): never {
+  throw new Error(`[redop] ${message}`);
+}
+
+function assertIdentifierLikeName(
+  kind: "tool" | "prompt",
+  value: string
+): void {
+  if (value.trim().length === 0) {
+    failValidation(`${kind} name must not be empty.`);
+  }
+  if (value !== value.trim()) {
+    failValidation(
+      `${kind} name "${value}" must not start or end with whitespace.`
+    );
+  }
+  if (value.length > MAX_MCP_IDENTIFIER_LENGTH) {
+    failValidation(
+      `${kind} name "${value}" must be ${MAX_MCP_IDENTIFIER_LENGTH} characters or fewer.`
+    );
+  }
+  if (!MCP_IDENTIFIER.test(value)) {
+    failValidation(
+      `${kind} name "${value}" may only contain letters, numbers, underscores (_), dashes (-), dots (.), and forward slashes (/).`
+    );
+  }
+}
+
+function assertDisplayName(kind: "resource", value: string): void {
+  if (value.trim().length === 0) {
+    failValidation(`${kind} name must not be empty.`);
+  }
+  if (value !== value.trim()) {
+    failValidation(
+      `${kind} name "${value}" must not start or end with whitespace.`
+    );
+  }
+}
+
+function assertUniqueName(
+  kind: "tool" | "prompt" | "resource",
+  value: string,
+  exists: boolean
+): void {
+  if (exists) {
+    failValidation(`${kind} "${value}" is already registered.`);
+  }
+}
+
+function assertValidResourceUri(uri: string): void {
+  if (uri.trim().length === 0) {
+    failValidation("resource URI must not be empty.");
+  }
+  if (uri !== uri.trim()) {
+    failValidation(
+      `resource URI "${uri}" must not start or end with whitespace.`
+    );
+  }
+  if (/\s/.test(uri)) {
+    failValidation(`resource URI "${uri}" must not contain whitespace.`);
+  }
+
+  let depth = 0;
+  let lastOpen = -1;
+  for (let i = 0; i < uri.length; i++) {
+    const ch = uri[i];
+    if (ch === "{") {
+      if (depth > 0) {
+        failValidation(
+          `resource URI template "${uri}" must not contain nested template expressions.`
+        );
+      }
+      depth = 1;
+      lastOpen = i;
+      continue;
+    }
+    if (ch === "}") {
+      if (depth === 0) {
+        failValidation(
+          `resource URI template "${uri}" contains an unmatched closing brace.`
+        );
+      }
+      if (i === lastOpen + 1) {
+        failValidation(
+          `resource URI template "${uri}" must not contain empty template expressions.`
+        );
+      }
+      depth = 0;
+    }
+  }
+  if (depth !== 0) {
+    failValidation(
+      `resource URI template "${uri}" contains an unmatched opening brace.`
+    );
+  }
+
+  const normalized = uri.replace(/\{[^}]+\}/g, "x");
+  if (!/^[A-Za-z][A-Za-z0-9+.-]*:/.test(normalized)) {
+    failValidation(
+      `resource URI "${uri}" must be an absolute URI or URI template with a valid scheme.`
+    );
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function promptArgumentsFromSchema(
+  promptName: string,
+  schema: Record<string, unknown>
+): readonly PromptArgument[] {
+  if (schema.type !== "object" && !isRecord(schema.properties)) {
+    failValidation(
+      `prompt "${promptName}" argumentsSchema must describe an object of named arguments.`
+    );
+  }
+
+  const properties = isRecord(schema.properties) ? schema.properties : {};
+  const required = new Set(
+    Array.isArray(schema.required)
+      ? schema.required.filter(
+          (value): value is string => typeof value === "string"
+        )
+      : []
+  );
+
+  return Object.entries(properties).map(([name, value]) => ({
+    name,
+    required: required.has(name) || undefined,
+    ...(isRecord(value) && typeof value.description === "string"
+      ? { description: value.description }
+      : {}),
+  }));
+}
+
+function normalizePromptArguments(
+  promptName: string,
+  definitions: readonly PromptArgument[] | undefined,
+  args: Record<string, string> | undefined
+): Record<string, string> | undefined {
+  if (!definitions?.length) {
+    return args;
+  }
+
+  const normalized = { ...(args ?? {}) };
+  const missingRequired = definitions
+    .filter(
+      (argument) => argument.required && normalized[argument.name] === undefined
+    )
+    .map((argument) => argument.name);
+
+  if (missingRequired.length > 0) {
+    failValidation(
+      `prompt "${promptName}" is missing required argument${missingRequired.length === 1 ? "" : "s"}: ${missingRequired.join(", ")}.`
+    );
+  }
+
+  return normalized;
+}
 
 // ── URI template helpers ──────────────────────
 
@@ -115,9 +297,10 @@ function matchTemplate(
 
 // ── Redop class ───────────────────────────────
 
-export class Redop<C extends Context = Context> {
+export class Redop<C extends Record<string, unknown> = {}> {
   private _hooks: HookRegistry = {
     after: [],
+    afterResponse: [],
     before: [],
     error: [],
     parse: [],
@@ -126,34 +309,31 @@ export class Redop<C extends Context = Context> {
   private _tools = new Map<string, ResolvedTool>();
   private _resources = new Map<string, ResolvedResource>();
   private _prompts = new Map<string, ResolvedPrompt>();
-  private _middlewares: ToolMiddleware<unknown, unknown, C>[] = [];
+  private _middlewares: Middleware<unknown, unknown, C>[] = [];
   private _inputParsers = new Map<string, InputParser>();
-  private _schemaAdapter?: SchemaAdapter;
+  private _promptArgumentParsers = new Map<string, InputParser>();
   private _deriveFns: DeriveFn<C>[] = [];
   private _capabilities: Required<CapabilityOptions>;
   private _serverInfo: Required<ServerInfoOptions>;
-  private _prefix = "";
   private _broadcast?: BroadcastFn;
   private _subscribedSessions = new Map<string, Set<string>>(); // uri → sessions
 
   constructor(options: RedopOptions = {}) {
+    const serverInfo = options.serverInfo ?? {};
     this._serverInfo = {
-      description: options.description ?? "",
-      icons: options.icons ?? [],
-      instructions: options.instructions ?? "",
-      name: options.name ?? DEFAULTS.name,
-      title: options.title ?? "",
-      version: options.version ?? DEFAULTS.version,
-      websiteUrl: options.websiteUrl ?? "",
+      description: serverInfo.description ?? options.description ?? "",
+      icons: serverInfo.icons ?? options.icons ?? [],
+      instructions: serverInfo.instructions ?? options.instructions ?? "",
+      name: serverInfo.name ?? options.name ?? DEFAULTS.name,
+      title: serverInfo.title ?? options.title ?? "",
+      version: serverInfo.version ?? options.version ?? DEFAULTS.version,
+      websiteUrl: serverInfo.websiteUrl ?? options.websiteUrl ?? "",
     };
     this._capabilities = {
       tools: options.capabilities?.tools ?? true,
       resources: options.capabilities?.resources ?? true,
       prompts: options.capabilities?.prompts ?? true,
     };
-    if (options.schemaAdapter) {
-      this._schemaAdapter = options.schemaAdapter;
-    }
   }
 
   // ── Derive ────────────────────────────────────────────────────────────────
@@ -171,7 +351,7 @@ export class Redop<C extends Context = Context> {
    * // ctx.userId is typed everywhere below
    */
   derive<D extends Record<string, unknown>>(
-    fn: (base: { request: RequestMeta } & Context) => D | Promise<D>
+    fn: (base: { request: RequestMeta } & Context<C>) => D | Promise<D>
   ): Redop<C & D> {
     this._deriveFns.push(fn as DeriveFn<C>);
     return this as unknown as Redop<C & D>;
@@ -196,6 +376,12 @@ export class Redop<C extends Context = Context> {
     return this;
   }
 
+  /** Fires after the response has been written. Best-effort and non-mutable. */
+  onAfterResponse(hook: AfterResponseHook<C>): this {
+    this._hooks.afterResponse.push(hook as AfterResponseHook);
+    return this;
+  }
+
   /** Fires when middleware or the handler throws. */
   onError(hook: ErrorHook<C>): this {
     this._hooks.error.push(hook as ErrorHook);
@@ -217,9 +403,9 @@ export class Redop<C extends Context = Context> {
     return this;
   }
 
-  /** Global middleware — fires for every tool in this instance. */
-  middleware<I = unknown>(mw: ToolMiddleware<I, unknown, C>): this {
-    this._middlewares.push(mw as ToolMiddleware<unknown, unknown, C>);
+  /** Global middleware — fires for every tool, resource, and prompt execution. */
+  middleware<I = unknown>(mw: Middleware<I, unknown, C>): this {
+    this._middlewares.push(mw as Middleware<unknown, unknown, C>);
     return this;
   }
 
@@ -232,32 +418,41 @@ export class Redop<C extends Context = Context> {
    * app.tool("get_weather", {
    *   title:       "Get current weather",
    *   description: "Retrieves weather for a city",
-   *   input:       z.object({ city: z.string() }),
+   *   inputSchema: z.object({ city: z.string() }),
    *   handler:     async ({ input }) => fetchWeather(input.city),
    * });
    */
-  tool<S, I = InferSchemaOutput<S>, O = unknown>(
+  tool<S, I = InferSchemaOutput<S>, O = unknown, OS = Record<string, unknown>>(
     name: string,
-    def: ToolDef<S, I, C, O>
+    def: ToolDef<S, I, C, O, OS>
   ): this {
-    const fullName = this._prefix ? `${this._prefix}_${name}` : name;
+    assertIdentifierLikeName("tool", name);
+    assertUniqueName("tool", name, this._tools.has(name));
 
     let inputSchema: Record<string, unknown> = {
       additionalProperties: false,
       properties: {},
       type: "object",
     };
+    let outputSchema: Record<string, unknown> | undefined;
+    const declaredInputSchema = def.inputSchema ?? def.input;
 
-    if (def.input) {
-      const adapter = this._schemaAdapter ?? detectAdapter(def.input);
-      inputSchema = adapter.toJsonSchema(def.input);
-      this._inputParsers.set(fullName, (input) =>
-        adapter.parse(def.input as S, input)
+    if (declaredInputSchema) {
+      const adapter = detectAdapter(declaredInputSchema);
+      inputSchema = adapter.toJsonSchema(declaredInputSchema);
+      this._inputParsers.set(name, (input) =>
+        adapter.parse(declaredInputSchema as S, input)
       );
     }
 
-    this._tools.set(fullName, {
+    if (def.outputSchema) {
+      const adapter = detectAdapter(def.outputSchema);
+      outputSchema = adapter.toJsonSchema(def.outputSchema);
+    }
+
+    this._tools.set(name, {
       after: def.after as ResolvedTool["after"],
+      afterResponse: def.afterResponse as ResolvedTool["afterResponse"],
       annotations: def.annotations,
       before: def.before as ResolvedTool["before"],
       description: def.description,
@@ -265,8 +460,8 @@ export class Redop<C extends Context = Context> {
       icons: def.icons,
       inputSchema,
       middleware: def.middleware as ResolvedTool["middleware"],
-      name: fullName,
-      outputSchema: def.outputSchema,
+      name,
+      outputSchema,
       taskSupport: def.taskSupport,
       title: def.title,
     });
@@ -293,18 +488,28 @@ export class Redop<C extends Context = Context> {
    * app.resource("users://{id}/profile", {
    *   name:    "User profile",
    *   mimeType: "application/json",
-   *   handler: ({ params }) => fetchUser(params!.id),
+   *   handler: ({ params }) => fetchUser(params.id),
    * });
    */
-  resource(uri: string, def: ResourceDef): this {
+  resource<const U extends string>(
+    uri: U,
+    def: ResourceDef<C, ResourceUriParams<U>>
+  ): this {
+    assertValidResourceUri(uri);
+    assertDisplayName("resource", def.name);
+    assertUniqueName("resource", uri, this._resources.has(uri));
     this._resources.set(uri, {
+      after: def.after as ResolvedResource["after"],
+      afterResponse: def.afterResponse as ResolvedResource["afterResponse"],
+      before: def.before as ResolvedResource["before"],
       uri,
       name: def.name,
       description: def.description,
       mimeType: def.mimeType,
       subscribe: def.subscribe,
       icons: def.icons,
-      handler: def.handler,
+      middleware: def.middleware as ResolvedResource["middleware"],
+      handler: def.handler as ResolvedResource["handler"],
       isTemplate: isTemplate(uri),
     });
     return this;
@@ -341,63 +546,41 @@ export class Redop<C extends Context = Context> {
    *     { name: "language", required: false },
    *   ],
    *   handler: ({ arguments: args }) => [
-   *     { role: "user", content: { type: "text", text: `Review this ${args?.language ?? ""} code:\n${args?.code}` } },
+   *     { role: "user", content: { type: "text", text: `Review this ${args.language ?? ""} code:\n${args.code}` } },
    *   ],
    * });
    */
-  prompt(name: string, def: PromptDef): this {
-    const fullName = this._prefix ? `${this._prefix}_${name}` : name;
-    this._prompts.set(fullName, {
-      name: fullName,
+  prompt<
+    const A extends readonly PromptArgument[] | undefined = undefined,
+    S = undefined,
+    I = InferPromptInput<S, A>,
+  >(name: string, def: PromptDef<C, A, S, I>): this {
+    assertIdentifierLikeName("prompt", name);
+    assertUniqueName("prompt", name, this._prompts.has(name));
+
+    let argumentsMetadata: readonly PromptArgument[] | undefined =
+      def.arguments;
+    if (def.argumentsSchema) {
+      const adapter = detectAdapter(def.argumentsSchema);
+      const jsonSchema = adapter.toJsonSchema(def.argumentsSchema);
+      this._promptArgumentParsers.set(name, (input) =>
+        adapter.parse(def.argumentsSchema as S, input)
+      );
+      if (!argumentsMetadata) {
+        argumentsMetadata = promptArgumentsFromSchema(name, jsonSchema);
+      }
+    }
+
+    this._prompts.set(name, {
+      after: def.after as ResolvedPrompt["after"],
+      afterResponse: def.afterResponse as ResolvedPrompt["afterResponse"],
+      name,
       description: def.description,
-      arguments: def.arguments,
-      handler: def.handler,
+      arguments: argumentsMetadata,
+      before: def.before as ResolvedPrompt["before"],
+      handler: def.handler as ResolvedPrompt["handler"],
+      middleware: def.middleware as ResolvedPrompt["middleware"],
     });
-    return this;
-  }
-
-  // ── Group ─────────────────────────────────────────────────────────────────
-
-  /**
-   * Register multiple tools, resources, and prompts under a shared prefix.
-   * Hooks and middleware registered inside the callback are scoped to this
-   * group — they do NOT bleed into the parent.
-   */
-  group(prefix: string, callback: (scoped: Redop<C>) => void): this {
-    const scoped = new Redop<C>({
-      name: this._serverInfo.name,
-      schemaAdapter: this._schemaAdapter,
-      version: this._serverInfo.version,
-    });
-
-    scoped._prefix = this._prefix ? `${this._prefix}_${prefix}` : prefix;
-
-    // Snapshot — not shared references
-    scoped._hooks = {
-      after: [...this._hooks.after],
-      before: [...this._hooks.before],
-      error: [...this._hooks.error],
-      parse: [...this._hooks.parse],
-      transform: [...this._hooks.transform],
-    };
-    scoped._middlewares = [...this._middlewares];
-    scoped._deriveFns = [...this._deriveFns];
-
-    callback(scoped);
-
-    for (const [n, t] of scoped._tools) {
-      this._tools.set(n, t);
-    }
-    for (const [n, p] of scoped._inputParsers) {
-      this._inputParsers.set(n, p);
-    }
-    for (const [u, r] of scoped._resources) {
-      this._resources.set(u, r);
-    }
-    for (const [n, p] of scoped._prompts) {
-      this._prompts.set(n, p);
-    }
-
     return this;
   }
 
@@ -405,14 +588,16 @@ export class Redop<C extends Context = Context> {
    * Merge another Redop instance as a plugin.
    * All hooks, middleware, tools, resources, and prompts are merged globally.
    */
-  use(plugin: Redop): this {
+  use<P extends Record<string, unknown>>(plugin: Redop<P>): Redop<C & P> {
     this._hooks.before.push(...plugin._hooks.before);
     this._hooks.after.push(...plugin._hooks.after);
+    this._hooks.afterResponse.push(...plugin._hooks.afterResponse);
     this._hooks.error.push(...plugin._hooks.error);
     this._hooks.transform.push(...plugin._hooks.transform);
     this._hooks.parse.push(...plugin._hooks.parse);
+    this._deriveFns.push(...(plugin._deriveFns as unknown as DeriveFn<C>[]));
     this._middlewares.push(
-      ...(plugin._middlewares as ToolMiddleware<unknown, unknown, C>[])
+      ...(plugin._middlewares as unknown as Middleware<unknown, unknown, C>[])
     );
     for (const [n, t] of plugin._tools) {
       this._tools.set(n, t);
@@ -420,42 +605,57 @@ export class Redop<C extends Context = Context> {
     for (const [n, p] of plugin._inputParsers) {
       this._inputParsers.set(n, p);
     }
+    for (const [n, p] of plugin._promptArgumentParsers) {
+      this._promptArgumentParsers.set(n, p);
+    }
     for (const [u, r] of plugin._resources) {
       this._resources.set(u, r);
     }
     for (const [n, p] of plugin._prompts) {
       this._prompts.set(n, p);
     }
-    return this;
+    return this as unknown as Redop<C & P>;
   }
 
   // ── Tool runner ───────────────────────────────────────────────────────────
 
-  async _runTool(
+  private async _emitErrorHooks(
+    event: Parameters<ErrorHook<C>>[0]
+  ): Promise<void> {
+    for (const hook of this._hooks.error) {
+      try {
+        await hook(event);
+      } catch {
+        // Ignore secondary error hook failures.
+      }
+    }
+  }
+
+  async _executeTool(
     toolName: string,
     rawArgs: Record<string, unknown>,
     request: RequestMeta
-  ): Promise<unknown> {
+  ): Promise<DeferredExecution<unknown>> {
     const tool = this._tools.get(toolName);
     if (!tool) {
       throw new Error(`Unknown tool: ${toolName}`);
     }
 
     // 1. Base context
-    const ctx: Context = {
+    const ctx = {
       headers: request.headers ?? {},
       rawParams: rawArgs,
       requestId: crypto.randomUUID(),
       sessionId: request.sessionId,
       tool: toolName,
       transport: request.transport,
-    };
+    } as Context<C>;
 
     // 2. Derive fns
     for (const fn of this._deriveFns) {
       Object.assign(ctx, await fn({ ...ctx, request }));
     }
-    const typedCtx = ctx as C;
+    const typedCtx = ctx;
 
     // 3. Transform hooks
     let params = { ...rawArgs };
@@ -485,7 +685,52 @@ export class Redop<C extends Context = Context> {
         if (typeof err === "object" && err !== null && "issues" in err) {
           ve.issues = (err as any).issues;
         }
-        throw ve;
+
+        const afterResponse = async () => {
+          if (tool.afterResponse) {
+            try {
+              await tool.afterResponse({
+                ctx: typedCtx,
+                error: ve,
+                input,
+                request,
+                tool: toolName,
+              });
+            } catch (error) {
+              await this._emitErrorHooks({
+                ctx: typedCtx,
+                error,
+                input,
+                request,
+                tool: toolName,
+              });
+            }
+          }
+
+          for (const hook of this._hooks.afterResponse) {
+            try {
+              await hook({
+                ctx: typedCtx,
+                error: ve,
+                input,
+                kind: "tool",
+                name: toolName,
+                request,
+                tool: toolName,
+              });
+            } catch (error) {
+              await this._emitErrorHooks({
+                ctx: typedCtx,
+                error,
+                input,
+                request,
+                tool: toolName,
+              });
+            }
+          }
+        };
+
+        return { afterResponse, error: ve, ok: false };
       }
     }
 
@@ -525,15 +770,20 @@ export class Redop<C extends Context = Context> {
       }
 
       // 9. Middleware chain (global → per-tool)
-      const chain: ToolMiddleware<unknown, unknown, C>[] = [
+      const chain: Middleware<unknown, unknown, C>[] = [
         ...this._middlewares,
-        ...((tool.middleware ?? []) as ToolMiddleware<unknown, unknown, C>[]),
+        ...((tool.middleware ?? []) as Middleware<unknown, unknown, C>[]),
       ];
       const dispatch = async (i: number): Promise<unknown> => {
         if (i >= chain.length) {
           return tool.handler(handlerEvent);
         }
-        return chain[i]!({ ...handlerEvent, next: () => dispatch(i + 1) });
+        return chain[i]!({
+          ...handlerEvent,
+          kind: "tool",
+          name: toolName,
+          next: () => dispatch(i + 1),
+        });
       };
       let result = await dispatch(0);
 
@@ -583,18 +833,135 @@ export class Redop<C extends Context = Context> {
         }
       }
 
-      return result;
+      const afterResponse = async () => {
+        if (tool.afterResponse) {
+          try {
+            await tool.afterResponse({
+              ctx: typedCtx,
+              input,
+              request,
+              result,
+              tool: toolName,
+            });
+          } catch (error) {
+            await this._emitErrorHooks({
+              ctx: typedCtx,
+              error,
+              input,
+              request,
+              tool: toolName,
+            });
+          }
+        }
+
+        for (const hook of this._hooks.afterResponse) {
+          try {
+            await hook({
+              ctx: typedCtx,
+              input,
+              kind: "tool",
+              name: toolName,
+              request,
+              result,
+              tool: toolName,
+            });
+          } catch (error) {
+            await this._emitErrorHooks({
+              ctx: typedCtx,
+              error,
+              input,
+              request,
+              tool: toolName,
+            });
+          }
+        }
+      };
+
+      return { afterResponse, ok: true, result };
     } catch (err) {
-      for (const h of this._hooks.error) {
-        await h({ ctx: typedCtx, error: err, input, request, tool: toolName });
-      }
-      throw err;
+      await this._emitErrorHooks({
+        ctx: typedCtx,
+        error: err,
+        input,
+        request,
+        tool: toolName,
+      });
+
+      const afterResponse = async () => {
+        if (tool.afterResponse) {
+          try {
+            await tool.afterResponse({
+              ctx: typedCtx,
+              error: err,
+              input,
+              request,
+              tool: toolName,
+            });
+          } catch (error) {
+            await this._emitErrorHooks({
+              ctx: typedCtx,
+              error,
+              input,
+              request,
+              tool: toolName,
+            });
+          }
+        }
+
+        for (const hook of this._hooks.afterResponse) {
+          try {
+            await hook({
+              ctx: typedCtx,
+              error: err,
+              input,
+              kind: "tool",
+              name: toolName,
+              request,
+              tool: toolName,
+            });
+          } catch (error) {
+            await this._emitErrorHooks({
+              ctx: typedCtx,
+              error,
+              input,
+              request,
+              tool: toolName,
+            });
+          }
+        }
+      };
+
+      return { afterResponse, error: err, ok: false };
     }
+  }
+
+  async _runTool(
+    toolName: string,
+    rawArgs: Record<string, unknown>,
+    request: RequestMeta
+  ): Promise<unknown> {
+    const execution = await this._executeTool(toolName, rawArgs, request);
+    if (!execution.ok) {
+      throw execution.error;
+    }
+    return execution.result;
   }
 
   // ── Resource runner ───────────────────────────────────────────────────────
 
-  async _readResource(uri: string, request: RequestMeta) {
+  async _executeResource(
+    uri: string,
+    request: RequestMeta
+  ): Promise<DeferredExecution<ResourceContents>> {
+    const ctx = {
+      headers: request.headers ?? {},
+      rawParams: {},
+      requestId: crypto.randomUUID(),
+      resource: uri,
+      sessionId: request.sessionId,
+      transport: request.transport,
+    } as ResourceContext<C>;
+
     // Try exact match first, then template match
     let resolved = this._resources.get(uri);
     let templateParams: Record<string, string> | undefined;
@@ -614,26 +981,532 @@ export class Redop<C extends Context = Context> {
     }
 
     if (!resolved) {
-      throw new Error(`Resource not found: ${uri}`);
+      return {
+        afterResponse: async () => {},
+        error: new Error(`Resource not found: ${uri}`),
+        ok: false,
+      };
     }
 
-    const event: ResourceReadEvent = { uri, params: templateParams, request };
-    return resolved.handler(event);
+    ctx.resource = resolved.uri;
+    ctx.rawParams = templateParams ?? {};
+
+    const event: ResourceReadEvent<ResourceContext<C>> = {
+      ctx,
+      uri,
+      params: templateParams,
+      request,
+    };
+    const globalCtx = {
+      ...ctx,
+      tool: resolved.uri,
+    } as Context<C>;
+    const globalInput = templateParams ?? {};
+
+    try {
+      for (const hook of this._hooks.before) {
+        await hook({
+          ctx: globalCtx,
+          input: globalInput,
+          request,
+          tool: resolved.uri,
+        });
+      }
+      if (resolved.before) {
+        await resolved.before(event);
+      }
+
+      const localChain = resolved.middleware ?? [];
+      const dispatchLocal = async (i: number): Promise<ResourceContents> => {
+        if (i >= localChain.length) {
+          return resolved.handler(event);
+        }
+        return localChain[i]!({ ...event, next: () => dispatchLocal(i + 1) });
+      };
+
+      const signal = request.abortSignal ?? new AbortController().signal;
+      const dispatchGlobal = async (i: number): Promise<ResourceContents> => {
+        if (i >= this._middlewares.length) {
+          return dispatchLocal(0);
+        }
+        return this._middlewares[i]!({
+          ctx: globalCtx,
+          emit: {
+            progress(value: number, total?: number, message?: string) {
+              request.progressCallback?.({ message, progress: value, total });
+            },
+          },
+          input: globalInput,
+          kind: "resource",
+          name: resolved.uri,
+          next: () => dispatchGlobal(i + 1),
+          params: templateParams,
+          request,
+          resource: resolved.uri,
+          signal,
+          tool: resolved.uri,
+          uri,
+        }) as Promise<ResourceContents>;
+      };
+
+      let result = await dispatchGlobal(0);
+
+      if (resolved.after) {
+        try {
+          const out = await resolved.after({ ...event, result });
+          if (out !== undefined) {
+            result = out as typeof result;
+          }
+        } catch (error) {
+          for (const errHook of this._hooks.error) {
+            await errHook({
+              ctx: globalCtx,
+              error,
+              input: globalInput,
+              request,
+              tool: resolved.uri,
+            });
+          }
+        }
+      }
+
+      for (const hook of this._hooks.after) {
+        try {
+          const out = await hook({
+            ctx: globalCtx,
+            input: globalInput,
+            request,
+            result,
+            tool: resolved.uri,
+          });
+          if (out !== undefined) {
+            result = out as typeof result;
+          }
+        } catch (error) {
+          for (const errHook of this._hooks.error) {
+            await errHook({
+              ctx: globalCtx,
+              error,
+              input: globalInput,
+              request,
+              tool: resolved.uri,
+            });
+          }
+        }
+      }
+
+      const afterResponse = async () => {
+        if (resolved.afterResponse) {
+          try {
+            await resolved.afterResponse({ ...event, result });
+          } catch (error) {
+            await this._emitErrorHooks({
+              ctx: globalCtx,
+              error,
+              input: globalInput,
+              request,
+              tool: resolved.uri,
+            });
+          }
+        }
+
+        for (const hook of this._hooks.afterResponse) {
+          try {
+            await hook({
+              ctx: globalCtx,
+              input: globalInput,
+              kind: "resource",
+              name: resolved.uri,
+              request,
+              result,
+              tool: resolved.uri,
+            });
+          } catch (error) {
+            await this._emitErrorHooks({
+              ctx: globalCtx,
+              error,
+              input: globalInput,
+              request,
+              tool: resolved.uri,
+            });
+          }
+        }
+      };
+
+      return { afterResponse, ok: true, result };
+    } catch (error) {
+      await this._emitErrorHooks({
+        ctx: globalCtx,
+        error,
+        input: globalInput,
+        request,
+        tool: resolved.uri,
+      });
+
+      const afterResponse = async () => {
+        if (resolved.afterResponse) {
+          try {
+            await resolved.afterResponse({ ...event, error });
+          } catch (postError) {
+            await this._emitErrorHooks({
+              ctx: globalCtx,
+              error: postError,
+              input: globalInput,
+              request,
+              tool: resolved.uri,
+            });
+          }
+        }
+
+        for (const hook of this._hooks.afterResponse) {
+          try {
+            await hook({
+              ctx: globalCtx,
+              error,
+              input: globalInput,
+              kind: "resource",
+              name: resolved.uri,
+              request,
+              tool: resolved.uri,
+            });
+          } catch (postError) {
+            await this._emitErrorHooks({
+              ctx: globalCtx,
+              error: postError,
+              input: globalInput,
+              request,
+              tool: resolved.uri,
+            });
+          }
+        }
+      };
+
+      return { afterResponse, error, ok: false };
+    }
+  }
+
+  async _readResource(uri: string, request: RequestMeta) {
+    const execution = await this._executeResource(uri, request);
+    if (!execution.ok) {
+      throw execution.error;
+    }
+    return execution.result;
   }
 
   // ── Prompt runner ─────────────────────────────────────────────────────────
+
+  async _executePrompt(
+    name: string,
+    args: Record<string, string> | undefined,
+    request: RequestMeta
+  ): Promise<DeferredExecution<PromptHandlerResult>> {
+    const ctx = {
+      headers: request.headers ?? {},
+      rawParams: (args ?? {}) as Record<string, unknown>,
+      prompt: name,
+      requestId: crypto.randomUUID(),
+      sessionId: request.sessionId,
+      transport: request.transport,
+    } as PromptContext<C>;
+    const prompt = this._prompts.get(name);
+    if (!prompt) {
+      return {
+        afterResponse: async () => {},
+        error: new Error(`Prompt not found: ${name}`),
+        ok: false,
+      };
+    }
+    ctx.prompt = prompt.name;
+    const rawPromptArgs = normalizePromptArguments(
+      name,
+      prompt.arguments,
+      args
+    );
+    let promptInput: unknown = rawPromptArgs;
+    const parser = this._promptArgumentParsers.get(name);
+
+    if (parser) {
+      try {
+        promptInput = await parser(
+          (rawPromptArgs ?? {}) as Record<string, unknown>
+        );
+      } catch (err) {
+        const ve = new Error(
+          `Validation failed for prompt "${name}": ${err instanceof Error ? err.message : String(err)}`
+        ) as Error & { cause?: unknown; issues?: unknown };
+        ve.cause = err;
+        if (typeof err === "object" && err !== null && "issues" in err) {
+          ve.issues = (err as any).issues;
+        }
+
+        const afterResponse = async () => {
+          if (prompt.afterResponse) {
+            try {
+              await prompt.afterResponse({
+                ctx,
+                error: ve,
+                arguments: promptInput as never,
+                name,
+                request,
+              });
+            } catch (error) {
+              await this._emitErrorHooks({
+                ctx: {
+                  ...ctx,
+                  tool: prompt.name,
+                } as Context<C>,
+                error,
+                input: (rawPromptArgs ?? {}) as Record<string, unknown>,
+                request,
+                tool: prompt.name,
+              });
+            }
+          }
+
+          for (const hook of this._hooks.afterResponse) {
+            try {
+              await hook({
+                ctx: {
+                  ...ctx,
+                  tool: prompt.name,
+                } as Context<C>,
+                error: ve,
+                input: (rawPromptArgs ?? {}) as Record<string, unknown>,
+                kind: "prompt",
+                name: prompt.name,
+                request,
+                tool: prompt.name,
+              });
+            } catch (error) {
+              await this._emitErrorHooks({
+                ctx: {
+                  ...ctx,
+                  tool: prompt.name,
+                } as Context<C>,
+                error,
+                input: (rawPromptArgs ?? {}) as Record<string, unknown>,
+                request,
+                tool: prompt.name,
+              });
+            }
+          }
+        };
+
+        return { afterResponse, error: ve, ok: false };
+      }
+    }
+
+    ctx.rawParams = isRecord(promptInput)
+      ? promptInput
+      : ((rawPromptArgs ?? {}) as Record<string, unknown>);
+
+    const event: PromptGetEvent<PromptContext<C>, typeof promptInput> = {
+      ctx,
+      name,
+      arguments: promptInput as never,
+      request,
+    };
+    const globalCtx = {
+      ...ctx,
+      tool: prompt.name,
+    } as Context<C>;
+    const globalInput = isRecord(promptInput)
+      ? promptInput
+      : ((rawPromptArgs ?? {}) as Record<string, unknown>);
+
+    try {
+      for (const hook of this._hooks.before) {
+        await hook({
+          ctx: globalCtx,
+          input: globalInput,
+          request,
+          tool: prompt.name,
+        });
+      }
+      if (prompt.before) {
+        await prompt.before(event);
+      }
+
+      const localChain = prompt.middleware ?? [];
+      const dispatchLocal = async (i: number): Promise<PromptHandlerResult> => {
+        if (i >= localChain.length) {
+          return prompt.handler(event);
+        }
+        return localChain[i]!({ ...event, next: () => dispatchLocal(i + 1) });
+      };
+
+      const signal = request.abortSignal ?? new AbortController().signal;
+      const dispatchGlobal = async (
+        i: number
+      ): Promise<PromptHandlerResult> => {
+        if (i >= this._middlewares.length) {
+          return dispatchLocal(0);
+        }
+        return this._middlewares[i]!({
+          arguments: rawPromptArgs,
+          ctx: globalCtx,
+          emit: {
+            progress(value: number, total?: number, message?: string) {
+              request.progressCallback?.({ message, progress: value, total });
+            },
+          },
+          input: globalInput,
+          kind: "prompt",
+          name: prompt.name,
+          next: () => dispatchGlobal(i + 1),
+          prompt: prompt.name,
+          request,
+          signal,
+          tool: prompt.name,
+        }) as Promise<PromptHandlerResult>;
+      };
+
+      let result = await dispatchGlobal(0);
+
+      if (prompt.after) {
+        try {
+          const out = await prompt.after({ ...event, result });
+          if (out !== undefined) {
+            result = out as PromptHandlerResult;
+          }
+        } catch (error) {
+          for (const errHook of this._hooks.error) {
+            await errHook({
+              ctx: globalCtx,
+              error,
+              input: globalInput,
+              request,
+              tool: prompt.name,
+            });
+          }
+        }
+      }
+
+      for (const hook of this._hooks.after) {
+        try {
+          const out = await hook({
+            ctx: globalCtx,
+            input: globalInput,
+            request,
+            result,
+            tool: prompt.name,
+          });
+          if (out !== undefined) {
+            result = out as PromptHandlerResult;
+          }
+        } catch (error) {
+          for (const errHook of this._hooks.error) {
+            await errHook({
+              ctx: globalCtx,
+              error,
+              input: globalInput,
+              request,
+              tool: prompt.name,
+            });
+          }
+        }
+      }
+
+      const afterResponse = async () => {
+        if (prompt.afterResponse) {
+          try {
+            await prompt.afterResponse({ ...event, result });
+          } catch (error) {
+            await this._emitErrorHooks({
+              ctx: globalCtx,
+              error,
+              input: globalInput,
+              request,
+              tool: prompt.name,
+            });
+          }
+        }
+
+        for (const hook of this._hooks.afterResponse) {
+          try {
+            await hook({
+              ctx: globalCtx,
+              input: globalInput,
+              kind: "prompt",
+              name: prompt.name,
+              request,
+              result,
+              tool: prompt.name,
+            });
+          } catch (error) {
+            await this._emitErrorHooks({
+              ctx: globalCtx,
+              error,
+              input: globalInput,
+              request,
+              tool: prompt.name,
+            });
+          }
+        }
+      };
+
+      return { afterResponse, ok: true, result };
+    } catch (error) {
+      await this._emitErrorHooks({
+        ctx: globalCtx,
+        error,
+        input: globalInput,
+        request,
+        tool: prompt.name,
+      });
+
+      const afterResponse = async () => {
+        if (prompt.afterResponse) {
+          try {
+            await prompt.afterResponse({ ...event, error });
+          } catch (postError) {
+            await this._emitErrorHooks({
+              ctx: globalCtx,
+              error: postError,
+              input: globalInput,
+              request,
+              tool: prompt.name,
+            });
+          }
+        }
+
+        for (const hook of this._hooks.afterResponse) {
+          try {
+            await hook({
+              ctx: globalCtx,
+              error,
+              input: globalInput,
+              kind: "prompt",
+              name: prompt.name,
+              request,
+              tool: prompt.name,
+            });
+          } catch (postError) {
+            await this._emitErrorHooks({
+              ctx: globalCtx,
+              error: postError,
+              input: globalInput,
+              request,
+              tool: prompt.name,
+            });
+          }
+        }
+      };
+
+      return { afterResponse, error, ok: false };
+    }
+  }
 
   async _getPrompt(
     name: string,
     args: Record<string, string> | undefined,
     request: RequestMeta
   ): Promise<PromptHandlerResult> {
-    const prompt = this._prompts.get(name);
-    if (!prompt) {
-      throw new Error(`Prompt not found: ${name}`);
+    const execution = await this._executePrompt(name, args, request);
+    if (!execution.ok) {
+      throw execution.error;
     }
-    const event: PromptGetEvent = { name, arguments: args, request };
-    return prompt.handler(event);
+    return execution.result;
   }
 
   // ── Subscription management ───────────────────────────────────────────────
@@ -680,11 +1553,18 @@ export class Redop<C extends Context = Context> {
           }
         : portOrOptions;
 
-    const runner = (
+    const runTool = (
       name: string,
       args: Record<string, unknown>,
       meta: RequestMeta
-    ) => this._runTool(name, args, meta);
+    ) => this._executeTool(name, args, meta);
+    const readResource = (uri: string, req: RequestMeta) =>
+      this._executeResource(uri, req);
+    const getPrompt = (
+      name: string,
+      args: Record<string, string> | undefined,
+      req: RequestMeta
+    ) => this._executePrompt(name, args, req);
     const transport = opts.transport ?? (opts.port ? "http" : "stdio");
 
     if (transport === "stdio") {
@@ -692,9 +1572,9 @@ export class Redop<C extends Context = Context> {
         this._tools,
         this._resources,
         this._prompts,
-        runner,
-        (uri, req) => this._readResource(uri, req),
-        (name, args, req) => this._getPrompt(name, args, req),
+        runTool,
+        readResource,
+        getPrompt,
         this._serverInfo,
         this._resolvedCapabilities()
       );
@@ -702,20 +1582,20 @@ export class Redop<C extends Context = Context> {
     }
 
     if (transport === "http") {
-      const { broadcast } = startHttpTransport(
+      const { push } = startHttpTransport(
         this._tools,
         this._resources,
         this._prompts,
-        runner,
-        (uri, req) => this._readResource(uri, req),
-        (name, args, req) => this._getPrompt(name, args, req),
+        runTool,
+        readResource,
+        getPrompt,
         (uri, sid) => this._subscribeResource(uri, sid),
         (uri, sid) => this._unsubscribeResource(uri, sid),
         opts,
         this._serverInfo,
         this._resolvedCapabilities()
       );
-      this._setBroadcast(broadcast);
+      this._setBroadcast(push);
       return this;
     }
 
@@ -750,13 +1630,13 @@ export class Redop<C extends Context = Context> {
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-export function middleware<I = unknown, C extends Context = Context>(
-  fn: ToolMiddleware<I, unknown, C>
+export function middleware<I = unknown, C extends Record<string, unknown> = {}>(
+  fn: Middleware<I, unknown, C>
 ): Redop<C> {
   return new Redop<C>().middleware(fn);
 }
 
-export function definePlugin<Options, C extends Context = Context>(
+export function definePlugin<Options, C extends Record<string, unknown> = {}>(
   definition: PluginDefinition<Options, C>
 ): PluginFactory<Options, C> {
   const factory = ((options: Options) =>

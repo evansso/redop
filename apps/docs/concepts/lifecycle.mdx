@@ -1,14 +1,22 @@
 ---
 title: Lifecycle and Execution Order
-description: Understand the order Redop uses to derive context, transform input, run hooks, execute middleware, and call handlers.
+description: Understand the order Redop uses to derive context, transform input, run hooks, execute middleware, call handlers, and schedule post-response work.
 ---
 
-The current Redop request flow is:
+Redop has two post-handler phases:
+
+- `after`, which still runs before the response and may replace the result
+- `afterResponse`, which runs after the response is already written and cannot change it
+
+## Tool execution order
+
+For tools, the request flow is:
 
 ```txt
 derive -> onTransform -> schema parse -> onParse ->
 onBeforeHandle -> tool.before -> middleware -> handler ->
-tool.after -> onAfterHandle
+tool.after -> onAfterHandle -> response written ->
+tool.afterResponse -> onAfterResponse
 ```
 
 ## What each stage is for
@@ -17,13 +25,41 @@ tool.after -> onAfterHandle
 - `onTransform` mutates raw params before schema parsing
 - schema parsing validates and coerces input
 - `onParse` can replace parsed input
-- `onBeforeHandle` observes work before middleware and handlers
+- `onBeforeHandle` observes work before middleware and handlers across tools, resources, and prompts
 - `tool.before` is local to one tool
 - middleware controls execution flow
 - the handler does the actual work
 - `tool.after` can post-process one tool result
-- `onAfterHandle` observes successful results across the whole server
+- `onAfterHandle` observes successful results across the whole server before the response is written
+- `tool.afterResponse` runs after the response is written for one tool only
+- `onAfterResponse` runs after the response is written across the whole server
+
+## Resource and prompt execution order
+
+Resources and prompts do not go through schema parsing. Their successful path is:
+
+```txt
+onBeforeHandle -> local.before -> middleware -> handler ->
+local.after -> onAfterHandle -> response written ->
+local.afterResponse -> onAfterResponse
+```
+
+For the shared global hooks:
+
+- `tool` is the tool name for tool calls
+- `tool` is the resource URI for resources
+- `tool` is the prompt name for prompts
 
 ## Error handling
 
-If middleware or the handler throws, `onError` hooks run. Errors thrown inside after hooks are isolated so the successful tool result can still complete.
+If middleware or the handler throws, `onError` hooks run.
+
+Errors thrown inside `after` hooks are isolated so the original successful result can still complete.
+
+Errors thrown inside `afterResponse` hooks are also isolated, but by that point the response is already sent. Those failures can be logged or observed, but they cannot change what the client received.
+
+## When to use each hook
+
+- Use `onBeforeHandle` for shared setup or observation before execution.
+- Use `onAfterHandle` when you must inspect or replace successful results before the client receives them.
+- Use `onAfterResponse` for analytics, logging, metrics, and other best-effort work that should happen after the response.

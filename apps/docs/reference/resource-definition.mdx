@@ -11,9 +11,10 @@ app.resource("users://{id}/profile", {
   description: "Read a user's profile",
   mimeType: "application/json",
   subscribe: true,
+  afterResponse: async ({ uri, result, error }) => {},
   handler: async ({ uri, params, request }) => ({
     type: "text",
-    text: JSON.stringify({ uri, id: params?.id, transport: request.transport }),
+    text: JSON.stringify({ uri, id: params.id, transport: request.transport }),
   }),
 });
 ```
@@ -27,6 +28,10 @@ app.resource("users://{id}/profile", {
 | `mimeType` | No | Resource MIME type. |
 | `subscribe` | No | Opt in to `resources/subscribe`. |
 | `icons` | No | Optional icons for supporting clients. |
+| `before` | No | Resource-local hook that runs before middleware and the handler. |
+| `after` | No | Resource-local hook that runs after a successful result and may replace it. |
+| `afterResponse` | No | Resource-local hook that runs after the response is written. Receives either `result` or `error` and cannot replace the response. |
+| `middleware` | No | Middleware scoped to this resource only. |
 | `handler` | Yes | Returns `ResourceContents`. |
 
 ## `ResourceContents`
@@ -37,3 +42,18 @@ app.resource("users://{id}/profile", {
 ## Template URIs
 
 If the resource URI contains `{name}` placeholders, Redop matches the concrete URI and passes the extracted values in `params`.
+
+When you register the resource with a literal template URI, Redop also infers the `params` type from those placeholders. This means `app.resource("users://{id}/profile", ...)` gives you `params.id: string` in the handler, hooks, and resource middleware. Static resources do not get template params, so `params` is `undefined` there.
+
+Redop also validates resource registration inputs early:
+
+- the resource URI must be non-empty, trimmed, and free of whitespace
+- the resource URI must include a valid scheme such as `file:`, `app:`, or `users:`
+- URI templates must have balanced `{}` expressions
+- duplicate resource URIs are rejected
+- the resource `name` must be non-empty and trimmed
+
+## Notes
+
+- Use `afterResponse` for non-critical post-response work such as logging, metrics, or audit events.
+- Use `after` instead when the logic must still be able to replace the successful resource result.

@@ -5,7 +5,7 @@ const url =
 
 export const siteConfig = {
   description:
-    "Bun-native TypeScript framework for building typed MCP servers.",
+    "Bun-native TypeScript framework for building production MCP servers.",
   name: "Redop",
   ogImage: `${url}/og.png`,
   title: "Redop | Bun-native MCP Framework",

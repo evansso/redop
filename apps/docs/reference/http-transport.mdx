@@ -1,6 +1,6 @@
 ---
 title: HTTP Transport Behavior
-description: Reference for the current Redop HTTP transport, its routes, development behavior, and practical compatibility notes.
+description: Reference for the current Redop HTTP transport routes, defaults, protocol support, and implementation details.
 ---
 
 ## Routes
@@ -10,8 +10,6 @@ description: Reference for the current Redop HTTP transport, its routes, develop
 | `POST` | `/mcp` | JSON-RPC endpoint |
 | `GET` | `/mcp` | Event stream |
 | `DELETE` | `/mcp` | Session termination |
-| `GET` | `/` | Development UI when enabled |
-| `GET` | `/_debug/data` | Development UI data when enabled |
 
 ## Current defaults
 
@@ -19,7 +17,6 @@ description: Reference for the current Redop HTTP transport, its routes, develop
 - hostname: `127.0.0.1`
 - port: `3000`
 - session timeout: `60_000` ms
-- dev UI: enabled outside production unless disabled
 
 ## Protocol versions
 
@@ -34,4 +31,10 @@ The current transport negotiates:
 - the transport supports streamable HTTP-style MCP traffic
 - it keeps compatibility behavior for local Inspector-style SSE flows
 - it can adopt client-provided session IDs for local tooling interoperability
-- `debug: true` logs requests, session behavior, initialize negotiation, and responses
+- it exposes an optional health route when you enable `health`
+- `debug: true` logs requests, session behavior, protocol negotiation, and responses to stderr
+
+## Current caveats
+
+- `tls` changes the reported URL scheme, but the transport does not currently boot Bun TLS from that option
+- `cors` is handled by a simple built-in response instead of the full typed `CorsOptions` policy surface

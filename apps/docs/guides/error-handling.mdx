@@ -1,0 +1,265 @@
+---
+title: Handle Errors
+description: Handle validation errors, registration-time naming errors, handler failures, and hook errors in Redop with clear patterns for logging and recovery.
+---
+
+Use these patterns to keep Redop errors predictable for both clients and server operators.
+
+## Where errors can happen
+
+In Redop, failures usually come from two stages:
+
+- server setup and registration
+- request-time execution
+
+During setup, failures usually come from:
+
+- invalid tool names
+- invalid prompt names
+- invalid resource URIs
+- duplicate tool, prompt, or resource registrations
+
+During requests, failures usually come from:
+
+- input schema validation
+- middleware
+- the tool handler
+- resource and prompt handlers
+- auth and rate-limit plugins
+
+## What Redop does by default
+
+- registration-time validation throws immediately and stops startup unless you catch it
+- tool input validation runs before the handler
+- tool input validation failures are returned as MCP tool errors with `isError: true`
+- errors from middleware or the handler trigger `onError(...)`
+- errors thrown inside local `after(...)` hooks and `onAfterHandle(...)` are isolated so the successful result can still complete
+- errors thrown inside `afterResponse(...)` hooks are isolated and cannot affect the already-sent response
+
+## Registration errors fail fast
+
+Redop validates tool names, prompt names, group prefixes, and resource URIs when you register them.
+
+That means these errors are normal JavaScript errors thrown during setup, not request-time MCP responses.
+
+```ts
+import { Redop } from "@redopjs/redop";
+
+new Redop({ serverInfo: { name: "errors-demo" } }).tool("bad name!", {
+  handler: () => ({ ok: true }),
+});
+```
+
+This throws immediately:
+
+```txt
+Error: [redop] tool name "bad name!" may only contain letters, numbers, underscores (_), dashes (-), dots (.), and forward slashes (/).
+```
+
+Use this fail-fast behavior to catch broken registrations during development and CI.
+
+## Validation errors are returned as tool errors
+
+For tool calls, Redop validates `inputSchema` before the handler runs.
+
+If validation fails:
+
+- the handler does not run
+- Redop wraps the failure with the tool name
+- the transport returns a tool error payload with `isError: true`
+
+This follows current MCP guidance for tool execution: validation failures should be exposed as tool execution errors so clients and models can inspect the message and recover.
+
+```ts
+import { Redop } from "@redopjs/redop";
+import { z } from "zod";
+
+new Redop({ serverInfo: { name: "errors-demo" } }).tool("search_docs", {
+  inputSchema: z.object({
+    query: z.string().min(1),
+  }),
+  handler: ({ input }) => ({ query: input.query, results: [] }),
+});
+```
+
+If a client calls `search_docs` without `query`, Redop returns a tool error result rather than crashing the server.
+
+A typical message looks like:
+
+```txt
+Validation failed for "search_docs": Validation failed
+```
+
+Depending on the schema library, the trailing message may include field-specific details.
+
+For example, with a Zod schema you may see a message shaped like:
+
+```txt
+Validation failed for "search_docs": [
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": ["query"],
+    "message": "Invalid input: expected string, received undefined"
+  }
+]
+```
+
+## Log failures with `onError(...)`
+
+Use `onError(...)` when you want one place to observe failures across the server.
+
+```ts
+import { Redop } from "@redopjs/redop";
+
+new Redop({
+  serverInfo: {
+    name: "errors-demo",
+  },
+})
+  .onError(({ error, tool, ctx, request }) => {
+    console.error("tool failed", {
+      tool,
+      requestId: ctx.requestId,
+      transport: request.transport,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  })
+  .tool("explode", {
+    handler: () => {
+      throw new Error("Something went wrong");
+    },
+  });
+```
+
+## Throw clear errors from handlers
+
+Prefer direct, specific error messages over vague messages like `"failed"`.
+
+```ts
+.tool("get_post", {
+  inputSchema: z.object({ id: z.string().min(1) }),
+  handler: ({ input }) => {
+    const post = posts.find((p) => p.id === input.id);
+    if (!post) {
+      throw new Error(`Post not found: ${input.id}`);
+    }
+    return post;
+  },
+})
+```
+
+## Treat validation errors as input problems
+
+Schema validation runs before the handler. If validation fails, Redop throws a validation error and the handler does not run.
+
+That means:
+
+- keep schema rules close to the tool definition
+- use clear field names and constraints
+- avoid repeating the same validation logic inside the handler unless the rule depends on external state
+
+For tools, prefer schema validation errors over manual `if` checks when the rule is about input shape, required fields, string length, number ranges, or enum membership.
+
+For registration-time naming problems, Redop throws direct setup errors such as:
+
+```txt
+Error: [redop] tool name "bad name!" may only contain letters, numbers, underscores (_), dashes (-), dots (.), and forward slashes (/).
+```
+
+Other setup errors follow the same pattern:
+
+```txt
+Error: [redop] prompt "code_review" is already registered.
+Error: [redop] resource URI template "users://{id/profile" contains an unmatched opening brace.
+```
+
+## Use middleware for policy errors
+
+Middleware is the right place for:
+
+- auth failures
+- rate limits
+- tenant checks
+- request-shape guards that depend on context
+
+```ts
+import { middleware, Redop } from "@redopjs/redop";
+
+const requireTenant = middleware(async ({ request, next }) => {
+  if (!request.headers["x-tenant-id"]) {
+    throw new Error("Missing x-tenant-id header");
+  }
+  return next();
+});
+
+new Redop({ serverInfo: { name: "tenant-demo" } })
+  .middleware(requireTenant)
+  .tool("ping", {
+    handler: () => ({ ok: true }),
+  });
+```
+
+## Use `McpError` when you need explicit protocol codes
+
+Redop exports `McpError` and `McpErrorCode` when you need a specific MCP-style error code.
+
+```ts
+import { McpError, McpErrorCode, Redop } from "@redopjs/redop";
+
+new Redop({ serverInfo: { name: "mcp-error-demo" } }).tool("parse_input", {
+  handler: () => {
+    throw new McpError(McpErrorCode.InvalidParams, "Input was invalid");
+  },
+});
+```
+
+Use this sparingly. Most application-level failures are clearer as normal errors with good messages.
+
+For tool input validation, you usually do not need `McpError`. Redop already turns schema failures into tool error results in the MCP response flow.
+
+## Keep after hooks side-effect-safe
+
+Local `after(...)` hooks and `onAfterHandle(...)` run after a successful handler result. If they throw, Redop reports that failure to error hooks but still lets the original successful result complete.
+
+That makes after hooks a good place for:
+
+- analytics
+- logging
+- non-critical notifications
+
+It also means they are the wrong place for mandatory business rules.
+
+## Use after-response hooks for post-response work
+
+Use `afterResponse(...)` on a tool, resource, or prompt, or `onAfterResponse(...)` globally, when the work should happen after Redop has already written the response.
+
+That makes them a good fit for:
+
+- analytics
+- logging
+- impressions
+- metrics
+- audit events
+
+Because the response is already sent:
+
+- `afterResponse(...)` cannot replace the client result
+- failures inside `afterResponse(...)` do not change the client response
+- Redop still reports those failures to error hooks when possible
+
+## Practical rules
+
+- let registration validation catch broken names and resource URIs early
+- validate shape in schemas
+- enforce policy in middleware
+- throw specific application errors in handlers
+- use `onError(...)` for shared logging and observability
+- keep after hooks non-critical
+
+## Related pages
+
+- [Lifecycle and Execution Order](/concepts/lifecycle)
+- [onAfterResponse](/documentation/on-after-response)
+- [Request, Context, and Handler Events](/reference/request-context)
+- [Build Plugins](/guides/build-plugins)

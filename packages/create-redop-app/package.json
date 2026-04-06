@@ -10,6 +10,18 @@
     "scaffold"
   ],
   "homepage": "https://redop.useagents.site",
+
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/redopjs/redop.git"
+  },
+  "bugs": {
+    "url": "https://github.com/redopjs/redop/issues"
+  },
+  "author": {
+    "name": "Evans Maina",
+    "url": "https://github.com/evansso"
+  },
   "license": "MIT",
   "bin": {
     "create-redop-app": "./dist/index.js"
@@ -33,7 +45,9 @@
   },
   "scripts": {
     "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
-    "build": "bun run clean && bun build ./src/index.ts --outdir ./dist --target node && tsc -p tsconfig.build.json",
+    "build": "bun run clean && bun run ./scripts/build.ts && tsc -p tsconfig.build.json",
+    "build:js": "bun run clean && bun run ./scripts/build.ts",
+    "build:types": "tsc -p tsconfig.build.json",
     "prepublishOnly": "bun run build && bun test && bun run typecheck",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
@@ -46,9 +60,7 @@
     "ora": "^9.3.0"
   },
   "devDependencies": {
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
+    "@types/bun": "latest",
+    "typescript": "^5.4.0"
   }
 }

@@ -8,15 +8,15 @@ Use `logger(...)` when you want request-aware logs around tool execution without
 ## Basic example
 
 ```ts
-import { logger, Redop } from "@useagents/redop";
+import { logger, Redop } from "@redopjs/redop";
 
-new Redop({ name: "logs" }).use(logger({ level: "info" }));
+new Redop({ serverInfo: { name: "logs" } }).use(logger({ level: "info" }));
 ```
 
 ## Send logs somewhere else
 
 ```ts
-new Redop({ name: "logs" }).use(
+new Redop({ serverInfo: { name: "logs" } }).use(
   logger({
     write: (entry) => {
       console.log("[my-app]", JSON.stringify(entry));

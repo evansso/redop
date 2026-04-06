@@ -1,0 +1,113 @@
+---
+title: onAfterResponse
+description: Use onAfterResponse for shared best-effort work that should run after Redop has already written the response.
+---
+
+Use `onAfterResponse(...)` when you need shared logic that should run after Redop has already written the response to the client.
+
+This is a global lifecycle hook. It runs for tools, resources, and prompts.
+
+## What it is for
+
+`onAfterResponse(...)` is a good fit when you want to:
+
+- log request completion without adding response latency
+- emit analytics or impressions
+- write metrics, traces, or audit events
+- trigger non-critical follow-up work that must not change the response
+
+## Example
+
+```ts
+new Redop({
+  serverInfo: {
+    name: "hooks-demo",
+  },
+})
+  .onAfterResponse(({ kind, name, result, error, ctx }) => {
+    console.log("after response", {
+      kind,
+      name,
+      ok: error == null,
+      requestId: ctx.requestId,
+      hasResult: result != null,
+    });
+  })
+  .tool("search_docs", {
+    afterResponse: ({ input, result }) => {
+      queueMicrotask(() => {
+        console.log("record search impression", {
+          query: input.query,
+          results: result?.results.length ?? 0,
+        });
+      });
+    },
+    handler: async ({ input }) => ({
+      query: input.query,
+      results: [],
+    }),
+  });
+```
+
+## What the event includes
+
+The global event includes:
+
+- `kind` as `"tool"`, `"resource"`, or `"prompt"`
+- `name` as the resolved tool name, resource URI, or prompt name
+- `tool` as the same normalized identifier used by the other global hooks
+- `ctx`
+- `request`
+- `input`
+- `result` when execution succeeded
+- `error` when execution failed
+
+## Where it runs in the lifecycle
+
+For tools, the successful path is:
+
+```txt
+derive -> onTransform -> schema parse -> onParse ->
+onBeforeHandle -> tool.before -> middleware -> handler ->
+tool.after -> onAfterHandle -> response written -> tool.afterResponse -> onAfterResponse
+```
+
+For resources and prompts, the idea is the same:
+
+```txt
+onBeforeHandle -> local.before -> middleware -> handler ->
+local.after -> onAfterHandle -> response written -> local.afterResponse -> onAfterResponse
+```
+
+That means `onAfterResponse(...)` runs:
+
+- after the response is already committed
+- after local `afterResponse`
+- for both successful and failed executions
+- too late to modify what the client receives
+
+## Use it vs `onAfterHandle`
+
+Use `onAfterHandle(...)` when you need to inspect or replace a successful result before Redop returns it.
+
+Use `onAfterResponse(...)` when the work should happen after the client response and should not add latency to the response path.
+
+## Error behavior
+
+`onAfterResponse(...)` is best-effort. If it throws, Redop reports the failure to error hooks when possible, but the client response has already been sent.
+
+That makes it a good place for:
+
+- analytics
+- logging
+- metrics
+- audit events
+
+It is not the right place for required business logic or data mutations that must succeed before the client sees a result.
+
+## Related pages
+
+- [onBeforeHandle](/documentation/on-before-handle)
+- [onAfterHandle](/documentation/on-after-handle)
+- [Lifecycle and Execution Order](/concepts/lifecycle)
+- [Error Handling](/documentation/error-handling)

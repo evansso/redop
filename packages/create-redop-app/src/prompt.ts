@@ -38,6 +38,9 @@ export async function runPrompts(
         COMPONENTS.includes(value as Component)
       ) ?? [];
 
+  const resolvedComponents =
+    componentFlags.length > 0 ? componentFlags : undefined;
+
   const project = await p.group(
     {
       name: () =>
@@ -60,7 +63,28 @@ export async function runPrompts(
             { value: "npm", label: "npm" },
           ],
         }),
-      schemaLibrary: () => {
+      components: () =>
+        resolvedComponents
+          ? Promise.resolve(resolvedComponents)
+          : p.multiselect({
+              message: "Select components to initialize:",
+              initialValues: ["tools"],
+              options: [
+                { value: "tools", label: "Tools", hint: "recommended" },
+                { value: "resources", label: "Resources" },
+                { value: "prompts", label: "Prompts" },
+              ],
+            }),
+      schemaLibrary: ({ results }) => {
+        const selectedComponents = (
+          ((results.components as Component[] | undefined) ?? resolvedComponents) ??
+          []
+        ).filter((value): value is Component => COMPONENTS.includes(value));
+
+        if (!selectedComponents.includes("tools")) {
+          return Promise.resolve("zod" as SchemaLibrary);
+        }
+
         if (
           flags?.schema &&
           SCHEMA_LIBRARIES.includes(flags.schema as SchemaLibrary)
@@ -79,18 +103,6 @@ export async function runPrompts(
           ],
         });
       },
-      components: () =>
-        componentFlags.length > 0
-          ? Promise.resolve(componentFlags)
-          : p.multiselect({
-              message: "Select components to initialize:",
-              initialValues: ["tools"],
-              options: [
-                { value: "tools", label: "Tools", hint: "recommended" },
-                { value: "resources", label: "Resources" },
-                { value: "prompts", label: "Prompts" },
-              ],
-            }),
       transport: () => {
         // Skip prompt if flag is provided and valid
         if (

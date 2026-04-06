@@ -20,13 +20,13 @@ bun add zod
 ## Step 2: Add a schema
 
 ```ts
-import { Redop } from "@useagents/redop";
+import { Redop } from "@redopjs/redop";
 import { z } from "zod";
 
-new Redop({ name: "typed-server" })
+new Redop({ serverInfo: { name: "typed-server" } })
   .tool("search_posts", {
     description: "Search posts by query",
-    input: z.object({
+    inputSchema: z.object({
       query: z.string().min(1),
       limit: z.number().int().min(1).max(20).default(10),
     }),

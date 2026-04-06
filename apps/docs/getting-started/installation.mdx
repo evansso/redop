@@ -1,19 +1,22 @@
 ---
 title: Installation
-description: Install Redop directly or scaffold a new Bun-first MCP server with create-redop-app.
+description: Install Redop in an existing Bun project or scaffold a starter MCP server with create-redop-app.
 ---
 
-Install Redop directly when you already have a Bun project, or scaffold a starter when you want a ready-to-run server.
+Choose the path that matches your starting point:
 
-## Install the package
+- install `@redopjs/redop` when you already have a Bun app
+- use `create-redop-app` when you want a generated starter project
+
+## Install Redop in an existing project
 
 ```sh
-bun add @useagents/redop zod
+bun add @redopjs/redop zod
 ```
 
-Redop is Bun-first, so the default examples and starter flow assume you will run the server with Bun.
+Redop is Bun-first. The examples, transport helpers, and starter projects assume you will run the server with Bun.
 
-## Scaffold a starter project
+## Scaffold a starter app
 
 If you want a ready-to-run project instead of wiring the first files yourself:
 
@@ -21,14 +24,13 @@ If you want a ready-to-run project instead of wiring the first files yourself:
 bun create redop-app my-redop-app
 ```
 
-That interactive flow can generate either an HTTP or stdio starter and can add deploy presets for hosted HTTP projects.
+The interactive flow can generate:
 
-## Which path should you choose?
+- an HTTP or stdio starter
+- tool, resource, and prompt examples
+- optional deploy presets for hosted HTTP projects
 
-- Install `@useagents/redop` directly if you already know the shape you want.
-- Use `create-redop-app` if you want a starter app, generated files, and deployment presets.
-
-## Next
+## What to do next
 
 - [Create a project with `create-redop-app`](/getting-started/create-redop-app)
 - [Build your first server](/getting-started/first-server)

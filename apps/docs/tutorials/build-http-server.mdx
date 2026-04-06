@@ -17,12 +17,14 @@ By the end, you will have:
 ## Step 1: Create the server
 
 ```ts
-import { Redop } from "@useagents/redop";
+import { Redop } from "@redopjs/redop";
 
 const app = new Redop({
-  name: "hello-redop",
-  title: "Hello Redop",
-  version: "0.1.0",
+  serverInfo: {
+    name: "hello-redop",
+    title: "Hello Redop",
+    version: "0.1.0",
+  },
 });
 ```
 
@@ -40,7 +42,7 @@ app.tool("ping", {
 ```ts
 app.tool("echo", {
   description: "Echo a message",
-  input: {
+  inputSchema: {
     type: "object",
     properties: {
       message: { type: "string" },

@@ -8,9 +8,9 @@ Use `apiKey(...)` when you want a simple shared-secret header on HTTP requests.
 ## Basic example
 
 ```ts
-import { apiKey, Redop } from "@useagents/redop";
+import { apiKey, Redop } from "@redopjs/redop";
 
-new Redop({ name: "auth-demo" })
+new Redop({ serverInfo: { name: "auth-demo" } })
   .use(
     apiKey({
       key: process.env.API_SECRET ?? "dev-secret",
@@ -30,7 +30,7 @@ x-api-key: dev-secret
 ## Multiple valid keys
 
 ```ts
-new Redop({ name: "auth-demo" }).use(
+new Redop({ serverInfo: { name: "auth-demo" } }).use(
   apiKey({
     keys: ["dev-key-1", "dev-key-2"],
   }),
@@ -40,7 +40,7 @@ new Redop({ name: "auth-demo" }).use(
 ## Custom validation
 
 ```ts
-new Redop({ name: "auth-demo" }).use(
+new Redop({ serverInfo: { name: "auth-demo" } }).use(
   apiKey({
     validateKey: async (value) => value.startsWith("sk-"),
   }),

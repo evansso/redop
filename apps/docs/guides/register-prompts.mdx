@@ -1,11 +1,17 @@
 ---
 title: Register Prompts
-description: Add MCP prompts to a Redop server with prompt.
+description: Register Redop prompts with arguments or argumentsSchema and understand how both fields behave together.
 ---
 
-Use prompts when the client should request reusable prompt material instead of running a tool.
+Register a prompt when you want clients to fetch reusable prompt material from your server.
 
-## Example
+## Choose your input model
+
+Use `arguments` for named string inputs. Use `argumentsSchema` when the handler should receive parsed and validated values.
+
+## Register a prompt with `arguments`
+
+When you define prompt arguments inline, Redop infers their shape in the handler. In this example, `args.code` is required and `args.language` is optional.
 
 ```ts
 app.prompt("code_review", {
@@ -19,15 +25,58 @@ app.prompt("code_review", {
       role: "user",
       content: {
         type: "text",
-        text: `Review this ${args?.language ?? "code"}:\n${args?.code ?? ""}`,
+        text: `Review this ${args.language ?? "code"}:\n${args.code}`,
       },
     },
   ],
 });
 ```
 
+## Register a prompt with `argumentsSchema`
+
+Use `argumentsSchema` when the prompt arguments need parsing or validation.
+
+```ts
+import { z } from "zod";
+
+app.prompt("summarise", {
+  description: "Summarise a topic",
+  argumentsSchema: z.object({
+    limit: z.coerce.number().int().min(1),
+    topic: z.string().min(1),
+  }),
+  handler: ({ arguments: args }) => [
+    {
+      role: "user",
+      content: {
+        type: "text",
+        text: `Summarise ${args.topic} in ${args.limit} sentences.`,
+      },
+    },
+  ],
+});
+```
+
+## Use both fields carefully
+
+You can define both `arguments` and `argumentsSchema` on the same prompt.
+
+When you do:
+
+- `arguments` controls MCP prompt metadata
+- `arguments` controls the early missing-required-argument check
+- `argumentsSchema` controls parsing and handler typing
+
+Redop does not currently reject mismatches between them. Keep them aligned if you use both.
+
 ## When prompts fit best
 
 - reusable prompt building blocks
 - prompt material that should stay alongside your server logic
 - flows where the client wants prompt metadata and arguments, not a tool call
+
+## Related pages
+
+- [Prompts](/documentation/prompts)
+- [Prompt definition](/reference/prompt-definition)
+- [Schema adapters](/reference/schema-adapters)

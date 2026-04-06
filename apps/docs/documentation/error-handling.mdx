@@ -1,0 +1,228 @@
+---
+title: Error Handling
+description: Learn how Redop resolves thrown errors for MCP clients, when to throw in middleware or handlers, and what `onError(...)` can observe.
+---
+
+Use this page when you want to know what happens after something throws in a schema, plugin, middleware, or handler.
+
+## How Redop resolves errors
+
+Redop resolves execution failures by MCP operation type:
+
+| Operation | What the client receives |
+| --- | --- |
+| `tools/call` | A tool result with `isError: true` |
+| `resources/read` | A JSON-RPC `error` object |
+| `prompts/get` | A JSON-RPC `error` object |
+
+That rule applies no matter where the failure came from:
+
+- schema validation
+- plugin middleware
+- global middleware
+- tool, resource, or prompt middleware
+- the handler itself
+
+Plugins do not have a separate error channel. A plugin error is resolved the same way as any other execution error.
+
+## What happens when a plugin or handler throws
+
+If middleware or a handler throws, Redop does three things:
+
+1. It stops the current execution path.
+2. It runs `onError(...)` hooks.
+3. It converts the failure into the client-facing response for that MCP operation.
+
+This means you can use the same mental model for plugin code and app code: throw where the request should stop, and let Redop normalize the response.
+
+## Example: throw from plugin middleware
+
+This example rejects requests that do not include an `x-tenant-id` header.
+
+```ts
+import { definePlugin, Redop } from "@redopjs/redop";
+
+const tenantPlugin = definePlugin({
+  name: "tenant",
+  version: "0.1.0",
+  setup() {
+    return new Redop<{ tenantId: string }>().middleware(
+      async ({ ctx, request, next }) => {
+        const tenantId = request.headers["x-tenant-id"];
+
+        if (!tenantId) {
+          throw new Error("Missing x-tenant-id header");
+        }
+
+        ctx.tenantId = tenantId;
+        return next();
+      }
+    );
+  },
+});
+
+const app = new Redop({
+  serverInfo: {
+    name: "errors-demo",
+    version: "0.1.0",
+  },
+})
+  .use(tenantPlugin({}))
+  .tool("whoami", {
+    description: "Return tenant information for the current request",
+    handler: ({ ctx }) => ({
+      tenantId: ctx.tenantId,
+    }),
+  });
+```
+
+If `x-tenant-id` is missing, the request never reaches the handler.
+
+## What a tool client receives
+
+If that failure happens during `tools/call`, Redop returns a normal tool result with `isError: true`.
+
+```json
+{
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "Error: Missing x-tenant-id header"
+      }
+    ],
+    "isError": true
+  }
+}
+```
+
+This is why tool failures are still returned inside `result` instead of the top-level JSON-RPC `error` field.
+
+## What a resource or prompt client receives
+
+If the same kind of failure happens during `resources/read` or `prompts/get`, Redop returns a JSON-RPC error object instead.
+
+```json
+{
+  "error": {
+    "code": -32602,
+    "message": "Missing x-tenant-id header"
+  }
+}
+```
+
+Today, Redop uses `-32602` for these execution failures in HTTP and stdio transports.
+
+## Where to throw errors
+
+Throw in the layer that owns the failure.
+
+### Use schemas for input validation
+
+Use schemas for:
+
+- missing required fields
+- invalid types
+- string length checks
+- enum and value constraints
+
+This keeps handlers focused on business logic instead of basic input checking.
+
+### Use middleware for request policy
+
+Use middleware for:
+
+- authentication
+- authorization checks based on headers or request metadata
+- tenant resolution
+- rate limits
+- request-scoped setup that must exist before the handler runs
+
+If the request should stop before business logic starts, middleware is the right place to throw.
+
+### Use handlers for business logic failures
+
+Use handlers for:
+
+- missing records
+- invalid domain transitions
+- failed external operations
+- permission checks that depend on loaded business data
+
+Prefer direct messages such as:
+
+- `Post not found: 123`
+- `Forbidden: missing scope 'admin'`
+- `Invoice is already paid`
+
+## What `onError(...)` is for
+
+`onError(...)` is for shared observability. It can log, trace, or count failures, but it does not redefine the transport behavior above.
+
+```ts
+new Redop({
+  serverInfo: {
+    name: "errors-demo",
+    version: "0.1.0",
+  },
+})
+  .onError(({ error, tool, ctx, request }) => {
+    console.error("request failed", {
+      tool,
+      requestId: ctx.requestId,
+      transport: request.transport,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  })
+  .tool("explode", {
+    handler: () => {
+      throw new Error("Something went wrong");
+    },
+  });
+```
+
+Use `onError(...)` for:
+
+- logging
+- metrics
+- tracing
+- alerting
+- audit records
+
+## What happens in `after(...)` and `afterResponse(...)`
+
+`after(...)` runs after a successful handler result exists. If an `after(...)` hook throws, Redop reports that failure to error hooks, but it does not replace the original successful result.
+
+`afterResponse(...)` runs after Redop has already finished the response. If it throws, Redop can still send that failure to error hooks, but the client response is already complete and cannot be changed.
+
+Use these hooks for best-effort work such as:
+
+- analytics
+- metrics
+- logging
+- notifications
+
+Do not put required business rules in either hook.
+
+## Use `McpError` when you need protocol intent
+
+Redop exports `McpError` and `McpErrorCode` for cases where you want to model an explicit MCP-aware failure instead of a generic application exception.
+
+For most application code, a normal `Error` is still the simplest choice. Reach for `McpError` when you want the failure itself to carry protocol-level meaning.
+
+## Practical rules
+
+- Throw in schemas for input shape and field rules.
+- Throw in middleware for request policy.
+- Throw in handlers for business logic.
+- Use `onError(...)` for shared observability.
+- Keep error messages specific enough for humans and agents to act on.
+- Do not rely on `after(...)` or `afterResponse(...)` for mandatory logic.
+
+## Related pages
+
+- [Plugins](/documentation/plugins)
+- [Tools](/documentation/tools)
+- [Lifecycle and Execution Order](/concepts/lifecycle)
+- [Request, Context, and Handler Events](/reference/request-context)
+- [onAfterResponse](/documentation/on-after-response)

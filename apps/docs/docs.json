@@ -1,62 +1,187 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "sequoia",
+  "theme": "aspen",
   "name": "Redop",
+  "icons": {
+    "library": "lucide"
+  },
   "colors": {
     "primary": "#f03603",
     "light": "#f03603",
     "dark": "#f03603"
   },
   "favicon": "/favicon.ico",
+  "seo": {
+    "metatags": {
+      "canonical": "https://useagents.site/docs"
+    }
+  },
+  "background": {
+    "decoration": "grid"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Install Redop",
+        "href": "/getting-started/create-redop-app",
+        "icon": "download"
+      }
+    ]
+  },
+  "fonts": {
+    "heading": {
+      "family": "Geist",
+      "weight": 500
+    },
+    "body": {
+      "family": "Geist"
+    }
+  },
   "navigation": {
-    "groups": [
+    "tabs": [
       {
-        "group": "Introduction",
-        "pages": ["index"]
-      },
-      {
-        "group": "Getting Started",
-        "pages": [
-          "getting-started/installation",
-          "getting-started/create-redop-app",
-          "getting-started/first-server",
-          "getting-started/connect-http",
-          "getting-started/connect-stdio",
-          "getting-started/verify-clients"
-        ]
-      },
-      {
-        "group": "Tutorials",
-        "pages": [
-          "tutorials/build-http-server",
-          "tutorials/add-zod-tool",
-          "tutorials/add-middleware-hooks",
-          "tutorials/add-http-auth",
-          "tutorials/scaffold-and-ship"
-        ]
-      },
-      {
-        "group": "How-To Guides",
-        "pages": [
-          "guides/choose-transport",
-          "guides/add-request-context",
-          "guides/organize-tools-with-group",
-          "guides/register-resources",
-          "guides/register-prompts",
-          "guides/notify-resource-changes",
+        "icon": "book-open",
+        "tab": "Documentation",
+        "groups": [
           {
-            "group": "Authentication",
+            "icon": "rocket",
+            "group": "Getting Started",
             "pages": [
-              "guides/authentication/api-key",
-              "guides/authentication/jwt",
-              "guides/authentication/oauth"
+              "index",
+              "getting-started/installation",
+              "getting-started/create-redop-app",
+              "getting-started/first-server",
+              "getting-started/connect-http",
+              "getting-started/connect-stdio",
+              "getting-started/verify-clients"
             ]
           },
-          "guides/logger-plugin",
-          "guides/build-plugin-or-middleware",
-          "guides/debug-http",
           {
-            "group": "Deploy to Production",
+            "icon": "blocks",
+            "group": "Core",
+            "pages": [
+              "documentation/configuration",
+              "documentation/listening-and-transports",
+              "documentation/tools",
+              "documentation/resources",
+              "documentation/prompts",
+              "documentation/validation",
+              "documentation/plugins",
+              "documentation/error-handling",
+              {
+                "group": "Lifecycle Hooks",
+                "pages": [
+                  "documentation/on-before-handle",
+                  "documentation/on-after-handle",
+                  "documentation/on-after-response"
+                ]
+              }
+            ]
+          },
+          {
+            "icon": "graduation-cap",
+            "group": "Tutorials",
+            "pages": [
+              "tutorials/build-http-server",
+              "tutorials/add-zod-tool",
+              "tutorials/add-middleware-hooks",
+              "tutorials/add-http-auth",
+              "tutorials/scaffold-and-ship"
+            ]
+          },
+          {
+            "icon": "lightbulb",
+            "group": "Concepts",
+            "pages": [
+              "concepts/mental-model",
+              "concepts/redop-vs-xmcp",
+              "concepts/lifecycle",
+              "concepts/composition",
+              "concepts/schemas",
+              "concepts/resources-prompts",
+              "concepts/transports"
+            ]
+          }
+        ]
+      },
+      {
+        "icon": "map",
+        "tab": "Guides",
+        "groups": [
+          {
+            "icon": "compass",
+            "group": "Guides",
+            "pages": [
+              "guides/choose-transport",
+              "guides/add-request-context",
+              "guides/compose-features-with-use",
+              "guides/register-resources",
+              "guides/register-prompts",
+              "guides/notify-resource-changes",
+              {
+                "icon": "shield-check",
+                "group": "Authentication",
+                "pages": [
+                  "guides/authentication/api-key",
+                  "guides/authentication/jwt",
+                  "guides/authentication/oauth"
+                ]
+              },
+              "guides/logger-plugin",
+              "guides/build-plugin-or-middleware",
+              "guides/build-plugins",
+              "guides/debug-http",
+              "guides/create-redop-app-presets"
+            ]
+          }
+        ]
+      },
+      {
+        "icon": "square-terminal",
+        "tab": "Reference",
+        "groups": [
+          {
+            "icon": "braces",
+            "group": "API Reference",
+            "pages": [
+              "reference/redop",
+              "reference/listen-options",
+              "reference/tool-definition",
+              "reference/request-context",
+              "reference/resource-definition",
+              "reference/prompt-definition",
+              "reference/built-in-plugins",
+              "reference/schema-adapters",
+              "reference/http-transport",
+              "reference/create-redop-app-cli"
+            ]
+          }
+        ]
+      },
+      {
+        "icon": "flask-conical",
+        "tab": "Examples",
+        "groups": [
+          {
+            "icon": "files",
+            "group": "Examples",
+            "pages": [
+              "examples/index",
+              "examples/basic",
+              "examples/modules",
+              "examples/with-zod",
+              "examples/plugins"
+            ]
+          }
+        ]
+      },
+      {
+        "icon": "cloud",
+        "tab": "Deploy",
+        "groups": [
+          {
+            "icon": "server",
+            "group": "Deploy",
             "pages": [
               "guides/deploy/index",
               "guides/deploy/railway",
@@ -64,34 +189,7 @@
               "guides/deploy/docker",
               "guides/deploy/vercel"
             ]
-          },
-          "guides/create-redop-app-presets"
-        ]
-      },
-      {
-        "group": "Concepts",
-        "pages": [
-          "concepts/mental-model",
-          "concepts/lifecycle",
-          "concepts/composition",
-          "concepts/schemas",
-          "concepts/resources-prompts",
-          "concepts/transports"
-        ]
-      },
-      {
-        "group": "Reference",
-        "pages": [
-          "reference/redop",
-          "reference/listen-options",
-          "reference/tool-definition",
-          "reference/request-context",
-          "reference/resource-definition",
-          "reference/prompt-definition",
-          "reference/built-in-plugins",
-          "reference/schema-adapters",
-          "reference/http-transport",
-          "reference/create-redop-app-cli"
+          }
         ]
       }
     ]
@@ -115,9 +213,8 @@
   },
   "footer": {
     "socials": {
-      "website": "https://redop.useagents.site",
       "x": "https://x.com/UseAgents",
-      "github": "https://github.com/evansso/redop"
+      "github": "https://github.com/redopjs/redop"
     }
   }
 }

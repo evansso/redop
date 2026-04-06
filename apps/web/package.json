@@ -1,5 +1,5 @@
 {
-  "name": "@redop-ai/web",
+  "name": "@redopjs/web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -23,7 +23,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@redop-ai/tsconfig": "workspace:*",
+    "@redopjs/tsconfig": "workspace:*",
     "@tailwindcss/postcss": "^4.2.2",
     "@types/bun": "^1.3.11",
     "@types/node": "^25.5.0",

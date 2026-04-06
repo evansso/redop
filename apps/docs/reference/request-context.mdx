@@ -7,11 +7,12 @@ description: Reference for ToolRequest, Context, and the event objects Redop pas
 
 `request` is transport metadata for the current invocation.
 
-Useful fields:
+Common fields:
 
 - `headers`
 - `transport`
 - `sessionId?`
+- `ip?`
 - `method?`
 - `url?`
 - `raw?`
@@ -20,22 +21,42 @@ Useful fields:
 
 These fields are optional when the active transport cannot provide them.
 
-## `ctx`
+## Base request context
 
-`ctx` is mutable per-request state shared across derive functions, hooks, middleware, and the handler.
-
-Built-in fields:
+All context variants share these built-in fields:
 
 - `headers`
 - `rawParams`
 - `requestId`
 - `sessionId?`
-- `tool`
 - `transport`
 
-## Handler event
+`ctx` is mutable per-request state shared across derive functions, hooks, middleware, and the active handler.
 
-Handlers receive:
+## Tool context
+
+Tool handlers, tool middleware, and tool hooks receive a context with:
+
+- the shared base request fields
+- `tool`
+
+## Resource context
+
+Resource handlers, resource middleware, and resource hooks receive a context with:
+
+- the shared base request fields
+- `resource`
+
+## Prompt context
+
+Prompt handlers, prompt middleware, and prompt hooks receive a context with:
+
+- the shared base request fields
+- `prompt`
+
+## Tool handler event
+
+Tool handlers receive:
 
 - `input`
 - `ctx`
@@ -44,14 +65,31 @@ Handlers receive:
 - `emit.progress(...)`
 - `signal`
 
-## Middleware event
+## Tool middleware event
 
-Middleware receives the same event plus:
+Tool middleware receives the same event plus:
 
 - `next()`
 
-## Hook events
+## Tool hook events
 
 - before hooks receive `ctx`, `input`, `request`, `tool`
 - after hooks also receive `result`
+- after-response hooks receive `kind`, `name`, and optional `result` or `error`
 - error hooks receive `error`
+- transform hooks receive `params`
+- parse hooks receive parsed `input`
+
+## Resource and prompt events
+
+Resource events use the resource context plus resource-specific fields:
+
+- resources receive `uri`
+- template resources can also receive `params`
+- resource middleware also receives `next()`
+
+Prompt events use the prompt context plus prompt-specific fields:
+
+- prompts receive `name`
+- prompt handlers can receive `arguments`
+- prompt middleware also receives `next()`

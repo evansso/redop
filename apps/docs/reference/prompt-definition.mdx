@@ -1,9 +1,11 @@
 ---
 title: Prompt Definition
-description: Reference for prompt definitions, prompt arguments, and prompt message content in Redop.
+description: Reference for Redop prompt fields, prompt argument behavior, argumentsSchema, and how both fields are resolved together.
 ---
 
-## Shape
+Prompt definitions register MCP prompts and control prompt metadata, handler input, prompt-local hooks, and middleware.
+
+## Example with `arguments`
 
 ```ts
 app.prompt("summarise", {
@@ -12,6 +14,7 @@ app.prompt("summarise", {
     { name: "text", required: true },
     { name: "length" },
   ],
+  afterResponse: async ({ name, result, error }) => {},
   handler: ({ arguments: args, request }) => ({
     description: "Summarise user-provided text",
     messages: [
@@ -19,7 +22,33 @@ app.prompt("summarise", {
         role: "user",
         content: {
           type: "text",
-          text: `Summarise this for ${request.transport}: ${args?.text ?? ""}`,
+          text: `Summarise this for ${request.transport}: ${args.text}`,
+        },
+      },
+    ],
+  }),
+});
+```
+
+## Example with `argumentsSchema`
+
+```ts
+import { z } from "zod";
+
+app.prompt("summarise", {
+  description: "Summarise a topic",
+  argumentsSchema: z.object({
+    limit: z.coerce.number().int().min(1),
+    topic: z.string().min(1),
+  }),
+  handler: ({ arguments: args }) => ({
+    description: "Summarise a topic with a target sentence count",
+    messages: [
+      {
+        role: "user",
+        content: {
+          type: "text",
+          text: `Summarise ${args.topic} in ${args.limit} sentences.`,
         },
       },
     ],
@@ -32,8 +61,61 @@ app.prompt("summarise", {
 | Field | Required | Purpose |
 | ----- | -------- | ------- |
 | `description` | No | Short prompt description. |
-| `arguments` | No | Named arguments exposed to the client. |
+| `arguments` | No | Named prompt arguments exposed to clients and used for required-argument checks. |
+| `argumentsSchema` | No | Schema used to parse and validate prompt arguments before the handler runs. |
+| `before` | No | Prompt-local hook that runs before middleware and the handler. |
+| `after` | No | Prompt-local hook that runs after a successful result and may replace it. |
+| `afterResponse` | No | Prompt-local hook that runs after the response is written. Receives either `result` or `error` and cannot replace the response. |
+| `middleware` | No | Middleware scoped to this prompt only. |
 | `handler` | Yes | Returns prompt messages or `{ description?, messages }`. |
+
+## `arguments`
+
+When you register a prompt with a literal `arguments` array, Redop infers the handler `arguments` shape from that definition.
+
+- `{ name: "text", required: true }` becomes `arguments.text: string`
+- `{ name: "length" }` becomes `arguments.length?: string`
+- prompts without an `arguments` definition receive `arguments` as `undefined`
+
+Redop also rejects prompt calls that omit required arguments.
+
+## `argumentsSchema`
+
+`argumentsSchema` accepts the same schema styles Redop supports for tool `inputSchema`.
+
+- Standard Schema V1 libraries such as Zod, Valibot, and ArkType
+- TypeBox
+- plain JSON Schema
+
+When `argumentsSchema` is present, the prompt handler receives the parsed schema output instead of a raw `Record<string, string>`.
+
+If you omit `arguments`, Redop derives prompt argument metadata from an object-shaped `argumentsSchema` when possible.
+
+## When both are defined
+
+Defining both `arguments` and `argumentsSchema` does not throw by itself.
+
+Redop resolves them like this:
+
+- `arguments` controls prompt metadata returned to clients
+- `arguments` drives the early missing-required-argument check
+- `argumentsSchema` parses and validates the incoming arguments
+- `argumentsSchema` determines the handler `arguments` type
+
+This means the handler follows the schema output, not the string shape declared in `arguments`, when both are present.
+
+If the two definitions disagree, metadata and runtime validation can drift. Redop does not currently reject that mismatch automatically.
+
+Use both fields only when you need custom metadata and schema-based parsing at the same time, and keep them aligned.
+
+## Prompt naming
+
+Prompt names are validated when you call `.prompt(name, def)`.
+
+- use a stable identifier such as `code_review` or `summarise`
+- keep names within 64 characters
+- use letters, numbers, `_`, `-`, `.`, and `/`
+- avoid spaces and trailing whitespace
 
 ## Prompt message content
 
@@ -42,3 +124,8 @@ Prompt messages can contain:
 - text
 - image data
 - embedded resource payloads
+
+## Notes
+
+- Use `afterResponse` for analytics or logging that should happen after the prompt response is already sent.
+- Use `after` instead when the logic must still be able to replace the successful prompt result.

@@ -8,9 +8,9 @@ Use `oauth(...)` when you want Redop to discover the authorization server metada
 ## Example
 
 ```ts
-import { oauth, Redop } from "@useagents/redop";
+import { oauth, Redop } from "@redopjs/redop";
 
-new Redop({ name: "oauth-demo" }).use(
+new Redop({ serverInfo: { name: "oauth-demo" } }).use(
   oauth({
     issuer: "https://auth.example.com",
     audience: "my-mcp-server",

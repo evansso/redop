@@ -17,6 +17,94 @@ import { useState } from "react";
 import { Icons } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 
+const exampleCode = `import { Redop } from "@redopjs/redop";
+import { z } from "zod";
+
+const app = new Redop<{ startedAt?: number }>({
+  serverInfo: {
+    name: "content-hub",
+    title: "Content Hub",
+    version: "1.0.0",
+    description: "Expose docs tools, resources, and prompts.",
+  },
+  capabilities: {
+    tools: true,
+    resources: true,
+    prompts: true,
+  },
+})
+  .onBeforeHandle(({ ctx, tool }) => {
+    ctx.startedAt = performance.now();
+    console.log("start", tool);
+  })
+  .onAfterHandle(({ ctx, result, tool }) => {
+    const startedAt = ctx.startedAt;
+    const ms =
+      startedAt == null ? 0 : +(performance.now() - startedAt).toFixed(2);
+
+    console.log("done", { tool, ms });
+    return result;
+  })
+  .onError(({ ctx, error, tool }) => {
+    console.error("failed", {
+      tool,
+      requestId: ctx.requestId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  })
+  .onAfterResponse(({ ctx, error, kind, name }) => {
+    console.log("afterResponse", {
+      kind,
+      name,
+      requestId: ctx.requestId,
+      ok: !error,
+    });
+  })
+  .tool("search_docs", {
+    description: "Search docs by keyword",
+    inputSchema: z.object({
+      query: z.string().min(1),
+      limit: z.number().int().min(1).max(10).default(5),
+    }),
+    handler: ({ input }) => ({
+      query: input.query,
+      results: [],
+      total: 0,
+    }),
+  })
+  .resource("docs://guides/getting-started", {
+    name: "Getting started guide",
+    mimeType: "text/markdown",
+    handler: () => ({
+      type: "text",
+      text: "# Getting started\\n\\nInstall Redop and add your first tool.",
+    }),
+  })
+  .prompt("rewrite_docs", {
+    description: "Rewrite docs in a concise style",
+    arguments: [
+      { name: "draft", required: true },
+      { name: "audience" },
+    ],
+    handler: ({ arguments: args }) => ({
+      description: "Rewrite technical docs for a target audience",
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: \`Rewrite this for \${args?.audience ?? "developers"}:\\n\\n\${args?.draft ?? ""}\`,
+          },
+        },
+      ],
+    }),
+  });
+
+app.listen({
+  port: 3000,
+  cors: true,
+});`;
+
 export default function Home() {
   const [copied, setCopied] = useState(false);
 
@@ -63,7 +151,7 @@ export default function Home() {
               transition={{ delay: 0.1, duration: 0.5 }}
             >
               Bun-native framework for building{" "}
-              <span className="text-redop-primary">MCP servers.</span>
+              <span className="text-redop-primary">production MCP servers.</span>
             </motion.h1>
 
             <motion.p
@@ -73,7 +161,8 @@ export default function Home() {
               transition={{ delay: 0.2, duration: 0.5 }}
             >
               Define tools, validate input, compose middleware, and add plugins.
-              Get strong TypeScript inference from Zod and run natively on Bun.
+              Add resources, prompts, and lifecycle hooks with strong TypeScript
+              inference from Zod, then run natively on Bun.
             </motion.p>
 
             <motion.div
@@ -130,58 +219,7 @@ export default function Home() {
               </div>
               <div className="overflow-x-auto p-6">
                 <pre className="font-mono text-redop-ink text-sm leading-relaxed">
-                  <code>
-                    <span className="text-redop-primary">import</span> {"{"}{" "}
-                    Redop {"}"} <span className="text-redop-primary">from</span>{" "}
-                    <span className="text-redop-deep">
-                      &apos;@useagents/redop&apos;
-                    </span>
-                    ;{"\n"}
-                    <span className="text-redop-primary">import</span> {"{"} z{" "}
-                    {"}"} <span className="text-redop-primary">from</span>{" "}
-                    <span className="text-redop-deep">&apos;zod&apos;</span>;
-                    {"\n"}
-                    {"\n"}
-                    <span className="text-redop-primary">const</span> app ={" "}
-                    <span className="text-redop-primary">new</span> Redop({"{"}{" "}
-                    name:{" "}
-                    <span className="text-redop-deep">&apos;my-mcp&apos;</span>{" "}
-                    {"}"}){"\n"}
-                    {"  "}.middleware(authMiddleware){"\n"}
-                    {"  "}.tool(
-                    <span className="text-redop-deep">
-                      &apos;get_weather&apos;
-                    </span>
-                    , {"{"}
-                    {"\n"}
-                    {"    "}description:{" "}
-                    <span className="text-redop-deep">
-                      &apos;Get current weather&apos;
-                    </span>
-                    ,{"\n"}
-                    {"    "}input: z.object({"{"}
-                    {"\n"}
-                    {"      "}location: z.string(),{"\n"}
-                    {"    "}
-                    {"}"},{"\n"}
-                    {"    "}
-                    <span className="text-redop-primary">async</span> handler(
-                    {"{"} input {"}"}) {"{"}
-                    {"\n"}
-                    {"      "}
-                    <span className="text-redop-ink/40">
-                      {"// input.location is fully typed"}
-                    </span>
-                    {"\n"}
-                    {"      "}
-                    <span className="text-redop-primary">return</span> await
-                    fetchWeather(input.location);{"\n"}
-                    {"    "}
-                    {"}"},{"\n"}
-                    {"  "}
-                    {"}"},{"\n"}
-                    {"  "}.listen(3000);
-                  </code>
+                  <code>{exampleCode}</code>
                 </pre>
               </div>
             </div>
@@ -251,10 +289,10 @@ export default function Home() {
                 icon: <Box className="h-5 w-5 text-redop-primary" />,
                 title: "Plugin System",
               },
-            ].map((feature, i) => (
+            ].map((feature) => (
               <div
                 className="rounded-xl border border-redop-border bg-redop-panel p-6"
-                key={i}
+                key={feature.title}
               >
                 <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-redop-soft">
                   {feature.icon}

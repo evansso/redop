@@ -1,7 +1,10 @@
-import tailwind from "bun-plugin-tailwind";
+import { build } from "bun";
 
-async function buildOrExit(label: string, config: Parameters<typeof Bun.build>[0]) {
-  const result = await Bun.build(config);
+async function buildOrExit(
+  label: string,
+  config: Parameters<typeof Bun.build>[0]
+) {
+  const result = await build(config);
 
   if (!result.success) {
     for (const log of result.logs) {
@@ -14,13 +17,5 @@ async function buildOrExit(label: string, config: Parameters<typeof Bun.build>[0
 await buildOrExit("server", {
   entrypoints: ["./src/index.ts"],
   outdir: "./dist",
-  target: "node",
-  plugins: [tailwind],
-});
-
-await buildOrExit("ui", {
-  entrypoints: ["./src/ui/index.html"],
-  outdir: "./dist/ui",
-  target: "browser",
-  plugins: [tailwind],
+  target: "bun",
 });

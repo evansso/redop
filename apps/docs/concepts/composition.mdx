@@ -3,7 +3,7 @@ title: Middleware vs Hooks vs Plugins
 description: Choose the right composition primitive in Redop instead of forcing everything into handlers.
 ---
 
-Redop gives you four main ways to shape behavior around tools.
+Redop gives you five main ways to shape behavior around tools, resources, and prompts.
 
 ## Use middleware when
 
@@ -15,6 +15,7 @@ Redop gives you four main ways to shape behavior around tools.
 
 - you want observability
 - you want lightweight pre- or post-processing
+- you need to choose between pre-response hooks such as `onAfterHandle` and post-response hooks such as `onAfterResponse`
 - you do not need to control execution flow
 
 ## Use plugins when
@@ -22,6 +23,19 @@ Redop gives you four main ways to shape behavior around tools.
 - you want to package reusable behavior
 - you want to ship a group of tools plus middleware or hooks
 - you want one installable unit that multiple servers can reuse
+
+## Use `.use(...)` for feature modules when
+
+- you are organizing one larger server into folders
+- each feature area should own its own registrations
+- you want the root `src/index.ts` to stay small
+- you want composition to be explicit and easy to trace
+
+The common pattern is:
+
+- one feature folder exports one `Redop` instance
+- that instance registers feature-local tools, resources, prompts, hooks, and middleware
+- the root server imports each feature module and attaches it with `.use(...)`
 
 ## Build custom composition when
 
@@ -31,7 +45,10 @@ Redop gives you four main ways to shape behavior around tools.
 
 See [Build a plugin or middleware](/guides/build-plugin-or-middleware) for step-by-step examples.
 
-## Use groups when
+## Naming matters
 
-- you want a shared prefix like `notes_list`
-- you want localized middleware or hooks inside one namespace
+Since Redop does not rewrite names for you, prefer explicit names that reflect the feature area:
+
+- tools: `notes.list`
+- prompts: `notes.summarise`
+- resources: `notes://{id}`

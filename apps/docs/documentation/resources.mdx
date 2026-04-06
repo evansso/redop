@@ -1,0 +1,123 @@
+---
+title: Resources
+description: Understand what Redop resources are, when to use them, and how static and template resources work.
+---
+
+Use a resource when the client should read data instead of asking the server to perform an action.
+
+Resources are a better fit than tools when the thing you are exposing has a stable identity and should be addressed by URI.
+
+This page focuses on when resources fit and how to model them well. For the exact resource contract, use [Resource Definition](/reference/resource-definition).
+
+## When a resource is the right fit
+
+Use a resource when:
+
+- the client needs readable data
+- the data has a stable URI
+- subscriptions or change notifications make sense
+
+Avoid a resource when the caller is really triggering business logic, a workflow, or a state-changing action. That is a tool.
+
+## Static and template resources
+
+Redop supports two resource styles:
+
+- static resources such as `config://server`
+- template resources such as `users://{id}/profile`
+
+Choose a static resource when one URI maps to one stable document.
+
+Choose a template resource when many concrete URIs share the same shape.
+
+## Static resource example
+
+```ts
+app.resource("config://server", {
+  name: "Server config",
+  mimeType: "application/json",
+  handler: async () => ({
+    type: "text",
+    text: JSON.stringify({ region: "eu-west-1" }),
+  }),
+});
+```
+
+## Model the URI carefully
+
+Resources have two identifiers:
+
+- the URI, which clients use to address the resource
+- the `name`, which is the human-readable display label
+
+The URI matters most because it is the stable address clients call. Prefer URI shapes that reflect the data model cleanly.
+
+Good examples:
+
+- `config://server`
+- `notes://latest`
+- `users://{id}/profile`
+
+## Description and MIME type
+
+Use `description` to explain what the resource represents.
+
+Use `mimeType` to describe the content clients should expect back.
+
+```ts
+description: "Read a user's profile"
+mimeType: "application/json"
+```
+
+## Template resource example
+
+Redop infers template params from the URI you register. In a resource like `users://{id}/profile`, the handler receives `params.id` as a `string`.
+
+```ts
+app.resource("users://{id}/profile", {
+  name: "User profile",
+  mimeType: "application/json",
+  handler: async ({ params }) => ({
+    type: "text",
+    text: JSON.stringify({ id: params.id }),
+  }),
+});
+```
+
+## What resource handlers return
+
+Return one of these shapes:
+
+- `{ type: "text", text, mimeType? }` for UTF-8 content
+- `{ type: "blob", blob, mimeType? }` for base64-encoded binary content
+
+That return contract stays small on purpose. The main design work is usually choosing the URI and deciding whether the content is stable enough to behave like a resource.
+
+## Local hooks and middleware
+
+Resources support per-resource execution logic:
+
+- `before` runs before middleware and the handler
+- `after` runs after a successful result and may replace it
+- `afterResponse` runs after the response is written and cannot replace it
+- `middleware` wraps only that resource
+
+Use `afterResponse` for non-critical follow-up work such as logging, metrics, or audit events.
+
+## Use subscriptions when the data changes
+
+If clients should be notified when a resource changes:
+
+- set `subscribe: true` on the resource
+- call `notifyResourceChanged(uri)` when the underlying data changes
+
+Use subscriptions when the resource identity stays stable but the underlying content changes over time.
+
+## Related pages
+
+- [Register Resources](/guides/register-resources)
+- [Notify Resource Subscribers](/guides/notify-resource-changes)
+- [Resource definition](/reference/resource-definition)
+- [onAfterResponse](/documentation/on-after-response)
+- [Tools](/documentation/tools)
+- [Prompts](/documentation/prompts)

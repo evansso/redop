@@ -27,11 +27,13 @@ Use Docker when you want to run Redop on your own infrastructure, on a container
 Use a listener shape like this in either Docker setup:
 
 ```ts
-import { Redop } from "@useagents/redop";
+import { Redop } from "@redopjs/redop";
 
 new Redop({
-  name: "docker-redop",
-  version: "0.1.0",
+  serverInfo: {
+    name: "docker-redop",
+    version: "0.1.0",
+  },
 })
   .tool("ping", {
     handler: () => ({ ok: true }),

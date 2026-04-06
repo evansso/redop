@@ -1,0 +1,88 @@
+---
+title: onBeforeHandle
+description: Understand when to use onBeforeHandle for shared pre-handler logic in a Redop server.
+---
+
+Use `onBeforeHandle(...)` when you need shared logic that should run before middleware and the handler.
+
+This is a global lifecycle hook. It runs for tools, resources, and prompts.
+
+## What it is for
+
+`onBeforeHandle(...)` is a good fit when you want to:
+
+- observe incoming work before execution
+- attach timing or request metadata to `ctx`
+- perform shared logging before execution
+- run lightweight setup that should happen for every request
+
+## Example
+
+```ts
+new Redop({
+  serverInfo: {
+    name: "hooks-demo",
+  },
+})
+  .onBeforeHandle(({ ctx, tool, request }) => {
+    ctx.startedAt = performance.now();
+    console.log("starting", {
+      name: tool,
+      transport: request.transport,
+      requestId: ctx.requestId,
+    });
+  })
+  .tool("ping", {
+    handler: () => ({ ok: true }),
+  });
+```
+
+## Where it runs in the lifecycle
+
+For tools, Redop runs this sequence:
+
+```txt
+derive -> onTransform -> schema parse -> onParse ->
+onBeforeHandle -> tool.before -> middleware -> handler ->
+tool.after -> onAfterHandle -> response written ->
+tool.afterResponse -> onAfterResponse
+```
+
+For resources and prompts, there is no schema parsing stage:
+
+```txt
+onBeforeHandle -> local.before -> middleware -> handler ->
+local.after -> onAfterHandle -> response written ->
+local.afterResponse -> onAfterResponse
+```
+
+That means `onBeforeHandle(...)` runs:
+
+- after tool input parsing when the request is a tool call
+- before local `before`
+- before middleware
+- before the handler
+
+In the event object, `tool` is the normalized identifier Redop exposes for global hooks:
+
+- tool calls use the tool name
+- resources use the resource URI
+- prompts use the prompt name
+
+## Use it vs local `before`
+
+Use `onBeforeHandle(...)` when the logic is shared across many tools, resources, or prompts.
+
+Use local `before` when the logic belongs to one tool, resource, or prompt only.
+
+## Keep it lightweight
+
+This hook runs for every execution path, so keep it focused on shared setup or observation. If the logic should control whether the request proceeds, middleware is often the better fit.
+
+## Related pages
+
+- [onAfterHandle](/documentation/on-after-handle)
+- [onAfterResponse](/documentation/on-after-response)
+- [Lifecycle and Execution Order](/concepts/lifecycle)
+- [Error Handling](/documentation/error-handling)
+- [Build Plugins](/guides/build-plugins)

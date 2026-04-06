@@ -30,12 +30,14 @@ Redop HTTP is a long-running Bun server. That means the best production fit toda
 No matter which platform you choose, a healthy Redop deployment should answer an MCP `initialize` request on `/mcp`.
 
 ```sh
-curl -X POST http://localhost:3000/mcp \
+curl -i -X POST http://localhost:3000/mcp \
   -H 'Content-Type: application/json' \
   --data '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"manual-check","version":"1.0.0"}}}'
 ```
 
 You should get a JSON-RPC response with `result.protocolVersion`, `serverInfo`, and capabilities.
+
+If you keep testing manually after `initialize`, copy the `Mcp-Session-Id` response header into later HTTP requests. Redop expects that header on follow-up JSON-RPC calls.
 
 ## Recommended paths
 

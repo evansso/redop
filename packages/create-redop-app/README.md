@@ -70,7 +70,6 @@ Depending on the deploy preset, it can also add:
 Generated starters now default to:
 
 - `dev`: `bun run --watch src/index.ts`
-- `start`: `bun run src/index.ts`
 - `typecheck`: `tsc --noEmit`
 
 Run the scaffolded app with:
@@ -99,4 +98,4 @@ bun dev
 
 ## Framework package
 
-The generated project installs `@useagents/redop`.
+The generated project installs `@redopjs/redop`.

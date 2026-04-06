@@ -1,6 +1,6 @@
 ---
 title: Tool Definition
-description: Reference for Redop tool definitions, including schemas, hooks, middleware, metadata, and task hints.
+description: Reference for Redop tool definitions, including schemas, annotations, hooks, middleware, and task hints.
 ---
 
 ## Shape
@@ -9,22 +9,21 @@ description: Reference for Redop tool definitions, including schemas, hooks, mid
 app.tool("tool_name", {
   title: "Optional UI title",
   description: "What the tool does",
-  input: z.object({
+  inputSchema: z.object({
     query: z.string(),
   }),
-  outputSchema: {
-    type: "object",
-    properties: {
-      query: { type: "string" },
-    },
-  },
+  outputSchema: z.object({
+    query: z.string(),
+  }),
   taskSupport: "optional",
   annotations: {
     readOnlyHint: true,
+    idempotentHint: true,
   },
   middleware: [myToolMiddleware],
   before: async ({ input, ctx }) => {},
   after: async ({ result }) => result,
+  afterResponse: async ({ result, error }) => {},
   handler: async ({ input, ctx, request, tool, emit, signal }) => {
     return { query: input.query };
   },
@@ -36,14 +35,15 @@ app.tool("tool_name", {
 | Field | Required | Purpose |
 | ----- | -------- | ------- |
 | `description` | No | Human-readable description shown to clients. |
-| `input` | No | Schema used for runtime parsing and tool discovery. |
-| `outputSchema` | No | Structured output schema surfaced to clients when the result is an object. |
+| `inputSchema` | No | Schema used for runtime parsing and tool discovery. |
+| `outputSchema` | No | Structured output schema surfaced to clients when the result is an object. Accepts the same supported schema styles as `inputSchema`. |
 | `title` | No | UI-friendly display title. |
 | `icons` | No | Tool icons for clients that support them. |
-| `annotations` | No | Tool hints such as `readOnlyHint` or `destructiveHint`. |
+| `annotations` | No | Behavioral hints forwarded to clients. Redop does not enforce them automatically. |
 | `middleware` | No | Middleware scoped to this tool only. |
 | `before` | No | Tool-local hook that runs before middleware and the handler. |
 | `after` | No | Tool-local hook that runs after a successful result and may replace it. |
+| `afterResponse` | No | Tool-local hook that runs after the response is written. Receives either `result` or `error` and cannot replace the response. |
 | `taskSupport` | No | Task support hint: `"forbidden"`, `"optional"`, or `"required"`. |
 | `handler` | Yes | Tool implementation. |
 
@@ -58,10 +58,29 @@ The handler receives:
 - `emit.progress(...)` for progress updates
 - `signal` for cancellation support
 
+## `annotations`
+
+`annotations` help clients reason about tool behavior before they call it.
+
+| Field | Meaning | Typical use |
+| ----- | ------- | ----------- |
+| `readOnlyHint` | The tool reads data and does not mutate state. | Search, list, inspect, preview, validate. |
+| `destructiveHint` | The tool may make hard-to-undo or high-impact changes. | Delete, cancel, revoke, overwrite, charge. |
+| `idempotentHint` | Repeating the same call should have the same effect without compounding side effects. | Sync, replace, ensure-state, upsert. |
+| `openWorldHint` | The tool depends on external or live information beyond the server's local state. | Web search, external APIs, live SaaS lookups. |
+
+Notes:
+
+- annotations are hints for clients and agents, not runtime enforcement
+- tools can combine multiple hints when they describe different aspects of behavior
+- avoid contradictory hints such as `readOnlyHint: true` and `destructiveHint: true`
+
 ## Notes
 
-- If you omit `input`, the handler receives the raw params object.
-- Tool names are prefixed with underscores when registered inside `group(...)`.
+- If you omit `inputSchema`, the handler receives the raw params object.
+- `outputSchema` is exported to clients as JSON Schema, but Redop does not validate returned values against it at runtime.
+- Prefer explicit names such as `notes.list` or `billing.invoice.create` when a tool belongs to a feature area.
+- `afterResponse` is the right place for per-tool analytics, impressions, and logging that should happen after the client response.
 - Tool-local hooks are the right place for per-tool post-processing.
 - Shared concerns belong in global hooks or plugins instead.
 

@@ -1,6 +1,6 @@
 ---
 title: Connect over HTTP
-description: Run a Redop server over HTTP and verify that your MCP endpoint is available at /mcp.
+description: Run a Redop server over HTTP and verify that your MCP endpoint responds at /mcp.
 ---
 
 Use HTTP when your server should run as a network service.
@@ -8,11 +8,13 @@ Use HTTP when your server should run as a network service.
 ## Start the HTTP transport
 
 ```ts
-import { Redop } from "@useagents/redop";
+import { Redop } from "@redopjs/redop";
 
 new Redop({
-  name: "http-server",
-  version: "0.1.0",
+  serverInfo: {
+    name: "http-server",
+    version: "0.1.0",
+  },
 })
   .tool("ping", {
     handler: () => ({ pong: true }),
@@ -20,26 +22,37 @@ new Redop({
   .listen(3000);
 ```
 
-## What to expect
+## What Redop serves
 
 - the MCP endpoint is `http://localhost:3000/mcp`
 - `POST /mcp` handles JSON-RPC requests
 - `GET /mcp` opens the event stream used for server notifications
 - `DELETE /mcp` closes the session
 
-In development, Redop also serves a debug UI at `/` unless you disable it with `devUI: false`.
+## Verify with curl
 
-## Quick manual check
-
-You can verify that initialize responds:
+Start by verifying that `initialize` responds:
 
 ```sh
-curl -X POST http://localhost:3000/mcp \
+curl -i -X POST http://localhost:3000/mcp \
   -H 'Content-Type: application/json' \
   --data '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"manual-check","version":"1.0.0"}}}'
 ```
 
-## If the connection fails
+Copy the `Mcp-Session-Id` response header from that first response.
+
+Use that session ID on follow-up HTTP requests:
+
+```sh
+curl -X POST http://localhost:3000/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'MCP-Session-Id: your-session-id' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+```
+
+Redop expects `MCP-Session-Id` on non-`initialize` HTTP requests.
+
+## Troubleshooting
 
 Turn on transport logging:
 
@@ -50,7 +63,8 @@ Turn on transport logging:
 })
 ```
 
-## Next
+## Related pages
 
+- [Listening and Transports](/documentation/listening-and-transports)
 - [Verify with local clients](/getting-started/verify-clients)
 - [Debug HTTP connections and sessions](/guides/debug-http)

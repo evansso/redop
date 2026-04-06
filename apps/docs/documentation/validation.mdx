@@ -1,0 +1,219 @@
+---
+title: Validation
+description: Validate tool input and describe tool output in Redop with Zod, Standard Schema libraries, TypeBox, and plain JSON Schema.
+---
+
+Use `inputSchema` and `outputSchema` to define structured tool contracts in Redop.
+
+## What validation does in Redop
+
+Redop uses schemas for two different jobs:
+
+- `inputSchema` validates and parses tool input before the handler runs
+- `outputSchema` describes structured output to MCP clients
+
+That means:
+
+- `inputSchema` affects runtime execution
+- `outputSchema` affects metadata and `structuredContent`
+- `outputSchema` is not currently enforced against returned values at runtime
+
+## Basic example
+
+```ts
+import { Redop } from "@redopjs/redop";
+import { z } from "zod";
+
+new Redop({ serverInfo: { name: "docs-server" } }).tool("search_docs", {
+  inputSchema: z.object({
+    query: z.string().min(1),
+    limit: z.number().int().min(1).max(20).default(10),
+  }),
+  outputSchema: z.object({
+    query: z.string(),
+    results: z.array(z.object({}).passthrough()),
+  }),
+  handler: ({ input }) => ({
+    query: input.query,
+    results: [],
+  }),
+});
+```
+
+## What happens when validation fails
+
+If `inputSchema` validation fails:
+
+- the handler does not run
+- Redop wraps the message with the tool name
+- the transport returns a tool error result with `isError: true`
+
+This matches current MCP guidance for tool input validation errors.
+
+A typical error message looks like:
+
+```txt
+Validation failed for "search_docs": Validation failed
+```
+
+Depending on the schema library, you may get richer field-level output.
+
+For example, a Zod validation failure may produce a message shaped like:
+
+```txt
+Validation failed for "search_docs": [
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": ["query"],
+    "message": "Invalid input: expected string, received undefined"
+  }
+]
+```
+
+## Supported schema styles
+
+Redop auto-detects supported schema styles per schema value.
+
+You can mix supported schema libraries across tools, and even use a different supported library for `inputSchema` and `outputSchema` on the same tool.
+
+## Zod
+
+Zod is a strong default when you want ergonomic authoring and good type inference.
+
+```ts
+import { z } from "zod";
+
+app.tool("search_docs", {
+  inputSchema: z.object({
+    query: z.string().min(1),
+    limit: z.number().int().min(1).max(20).default(10),
+  }),
+  handler: ({ input }) => ({
+    query: input.query,
+    limit: input.limit,
+  }),
+});
+```
+
+## Standard Schema libraries
+
+Redop supports libraries that implement the Standard Schema contract.
+
+That includes common options such as:
+
+- Zod
+- Valibot
+- ArkType
+- Effect Schema
+- Yup
+- Joi
+- other Standard Schema-compatible libraries
+
+```ts
+import { z } from "zod";
+import * as v from "valibot";
+
+app.tool("search_docs", {
+  inputSchema: z.object({
+    query: z.string().min(1),
+  }),
+  outputSchema: v.object({
+    query: v.string(),
+  }),
+  handler: ({ input }) => ({
+    query: input.query,
+  }),
+});
+```
+
+## TypeBox
+
+TypeBox is a good fit when you want JSON-Schema-first authoring and optional runtime validation through `@sinclair/typebox/value`.
+
+```ts
+import { Type } from "@sinclair/typebox";
+
+app.tool("search_docs", {
+  inputSchema: Type.Object({
+    query: Type.String(),
+    limit: Type.Optional(Type.Number({ default: 10 })),
+  }),
+  outputSchema: Type.Object({
+    query: Type.String(),
+  }),
+  handler: ({ input }) => ({
+    query: input.query,
+    limit: input.limit,
+  }),
+});
+```
+
+## Plain JSON Schema
+
+You can also pass plain JSON Schema objects directly.
+
+```ts
+app.tool("search_docs", {
+  inputSchema: {
+    type: "object",
+    properties: {
+      query: { type: "string" },
+      limit: { type: "number" },
+    },
+    required: ["query"],
+    additionalProperties: false,
+  },
+  outputSchema: {
+    type: "object",
+    properties: {
+      query: { type: "string" },
+      results: {
+        type: "array",
+        items: { type: "object" },
+      },
+    },
+  },
+  handler: ({ input }) => ({
+    query: input.query,
+    results: [],
+  }),
+});
+```
+
+Important note:
+
+- plain JSON Schema is used directly for MCP metadata
+- plain JSON Schema does not currently perform runtime parsing or coercion by itself in Redop
+
+If you need runtime enforcement, prefer a supported runtime-capable schema library such as Zod, Valibot, ArkType, or TypeBox.
+
+## Input schema vs output schema
+
+Use `inputSchema` when you need:
+
+- runtime validation
+- type inference
+- defaults or coercion from the schema library
+- MCP input metadata
+
+Use `outputSchema` when you need:
+
+- structured output metadata for clients
+- `structuredContent` on object results
+- a machine-readable result shape
+
+## Practical rules
+
+- use `inputSchema` for runtime input validation
+- use `outputSchema` for result metadata
+- prefer Zod or another Standard Schema library when you want runtime validation and strong types
+- use TypeBox when you want JSON-Schema-first authoring
+- use plain JSON Schema when you already have schema objects and only need metadata
+
+## Related pages
+
+- [Tools](/documentation/tools)
+- [Handle Errors](/guides/error-handling)
+- [Schema Adapters Reference](/reference/schema-adapters)
+- [Tool Definition](/reference/tool-definition)

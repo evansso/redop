@@ -1,5 +1,5 @@
 {
-  "name": "redop-ai",
+  "name": "redopjs",
   "private": true,
   "workspaces": [
     "apps/*",
@@ -12,9 +12,9 @@
     "check-types": "turbo run check-types",
     "check": "ultracite check",
     "fix": "ultracite fix",
-    "dev:web": "turbo run dev --filter=@redop-ai/web",
-    "build:web": "turbo run build --filter=@redop-ai/web",
-    "start:web": "turbo run start --filter=@redop-ai/web"
+    "dev:web": "turbo run dev --filter=@redopjs/web",
+    "build:web": "turbo run build --filter=@redopjs/web",
+    "start:web": "turbo run start --filter=@redopjs/web"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.7",

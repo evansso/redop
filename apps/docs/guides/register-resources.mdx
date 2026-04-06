@@ -20,13 +20,15 @@ app.resource("config://server", {
 
 ## Template resource
 
+When you register a template URI, Redop infers the handler `params` shape from the placeholders in that URI. For `users://{id}/profile`, `params.id` is typed as `string`.
+
 ```ts
 app.resource("users://{id}/profile", {
   name: "User profile",
   mimeType: "application/json",
   handler: async ({ params }) => ({
     type: "text",
-    text: JSON.stringify({ id: params?.id }),
+    text: JSON.stringify({ id: params.id }),
   }),
 });
 ```

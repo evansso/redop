@@ -1,0 +1,110 @@
+---
+title: onAfterHandle
+description: Understand when to use onAfterHandle for shared post-handler logic in a Redop server.
+---
+
+Use `onAfterHandle(...)` when you need shared logic that should run after a successful handler result but before Redop returns it.
+
+This is a global lifecycle hook. It runs for tools, resources, and prompts after the handler and after any local `after(...)` hook.
+
+## What it is for
+
+`onAfterHandle(...)` is a good fit when you want to:
+
+- log successful results
+- attach shared post-processing
+- replace or wrap successful results across many tools, resources, or prompts
+- normalize successful responses before clients receive them
+
+## Example
+
+```ts
+new Redop({
+  serverInfo: {
+    name: "hooks-demo",
+  },
+})
+  .onBeforeHandle(({ ctx }) => {
+    ctx.startedAt = performance.now();
+  })
+  .onAfterHandle(({ ctx, tool, result }) => {
+    const ms =
+      ctx.startedAt == null ? 0 : +(performance.now() - ctx.startedAt).toFixed(2);
+
+    console.log("completed", {
+      name: tool,
+      ms,
+    });
+
+    return {
+      result,
+      timingMs: ms,
+    };
+  })
+  .tool("ping", {
+    handler: () => ({ ok: true }),
+  });
+```
+
+## Where it runs in the lifecycle
+
+For tools, Redop runs this sequence:
+
+```txt
+derive -> onTransform -> schema parse -> onParse ->
+onBeforeHandle -> tool.before -> middleware -> handler ->
+tool.after -> onAfterHandle -> response written ->
+tool.afterResponse -> onAfterResponse
+```
+
+For resources and prompts, the successful path is:
+
+```txt
+onBeforeHandle -> local.before -> middleware -> handler ->
+local.after -> onAfterHandle -> response written ->
+local.afterResponse -> onAfterResponse
+```
+
+That means `onAfterHandle(...)` runs:
+
+- only after a successful handler result
+- after local `after(...)`
+- before the final successful result is returned
+
+In the global event, `tool` is the normalized identifier:
+
+- tool name for tool calls
+- resource URI for resources
+- prompt name for prompts
+
+## Use it vs local `after`
+
+Use `onAfterHandle(...)` when the logic is shared across many tools, resources, or prompts.
+
+Use local `after` when the post-processing belongs to one definition only.
+
+## Use it vs `onAfterResponse`
+
+Use `onAfterHandle(...)` when the logic must see or replace the result before the client receives it.
+
+Use [`onAfterResponse(...)`](/documentation/on-after-response) when the work should happen after the response is already written and should not affect latency on the response path.
+
+## Error behavior
+
+If `onAfterHandle(...)` throws, Redop reports that failure to error hooks but still lets the original successful tool result complete.
+
+That makes `onAfterHandle(...)` a good place for:
+
+- logging
+- non-critical result decoration
+- result normalization that still needs to happen before the response
+
+It is not the right place for post-response analytics. Use `onAfterResponse(...)` for that.
+
+## Related pages
+
+- [onBeforeHandle](/documentation/on-before-handle)
+- [onAfterResponse](/documentation/on-after-response)
+- [Lifecycle and Execution Order](/concepts/lifecycle)
+- [Error Handling](/documentation/error-handling)
+- [Build Plugins](/guides/build-plugins)

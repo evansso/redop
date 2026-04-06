@@ -14,9 +14,9 @@ This tutorial shows the quickest way to add auth to a hosted Redop server.
 ## Step 1: Add the plugin
 
 ```ts
-import { apiKey, Redop } from "@useagents/redop";
+import { apiKey, Redop } from "@redopjs/redop";
 
-new Redop({ name: "auth-demo" })
+new Redop({ serverInfo: { name: "auth-demo" } })
   .use(
     apiKey({
       key: process.env.API_SECRET ?? "dev-secret",

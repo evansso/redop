@@ -28,17 +28,19 @@ const posts = [
 // ── App ───────────────────────────────────────
 
 new Redop({
-  name: "with-zod",
-  title: "With Zod",
-  description: "With zod description",
-  version: "1.0.1",
-  icons: [
-    {
-      src: "https://media.useagents.site/useagents/icon.svg",
-      mimeType: "image/svg+xml",
-    },
-  ],
-  websiteUrl: "https://useagents.site/docs",
+  serverInfo: {
+    name: "with-zod",
+    title: "With Zod",
+    description: "With zod description",
+    version: "1.0.1",
+    icons: [
+      {
+        src: "https://media.useagents.site/useagents/icon.svg",
+        mimeType: "",
+      },
+    ],
+    websiteUrl: "https://useagents.site/docs",
+  },
 })
 
   .use(logger({ level: "info" }))
@@ -65,7 +67,11 @@ new Redop({
 
   .tool("list_posts", {
     description: "List all blog posts with optional tag filter",
-    input: z.object({
+    annotations: {
+      idempotentHint: true,
+      readOnlyHint: true,
+    },
+    inputSchema: z.object({
       limit: z.number().int().min(1).max(100).default(10),
       tag: z.string().optional(),
     }),
@@ -86,15 +92,18 @@ new Redop({
       }
       return post;
     },
-    input: z.object({
+    inputSchema: z.object({
       id: z.string().min(1),
     }),
   })
 
   .tool("create_post", {
     description: "Create a new blog post",
-    annotations: { destructiveHint: false },
-    input: z.object({
+    annotations: {
+      destructiveHint: true,
+      openWorldHint: true,
+    },
+    inputSchema: z.object({
       body: z.string().min(10),
       tags: z.array(z.string().max(30)).max(10).default([]),
       title: z.string().min(3).max(200),
@@ -119,6 +128,11 @@ new Redop({
 
   .tool("search_posts", {
     description: "Full-text search across post titles and bodies",
+    annotations: {
+      idempotentHint: true,
+      openWorldHint: true,
+      readOnlyHint: true,
+    },
     handler: ({ input }) => {
       const q = input.query.toLowerCase();
       const results = posts.filter((p) => {
@@ -134,12 +148,11 @@ new Redop({
       });
       return { results, query: input.query, count: results.length };
     },
-    input: z.object({
+    inputSchema: z.object({
       query: z.string().min(1),
       field: z.enum(["title", "body", "all"]).default("all"),
     }),
   })
-
   .listen({
     cors: true,
     onListen: ({ url }) => {

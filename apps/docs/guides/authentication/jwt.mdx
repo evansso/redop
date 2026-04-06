@@ -8,9 +8,9 @@ Use `jwt(...)` when your clients already send bearer tokens and you want Redop t
 ## Shared secret example
 
 ```ts
-import { jwt, Redop } from "@useagents/redop";
+import { jwt, Redop } from "@redopjs/redop";
 
-new Redop({ name: "jwt-demo" }).use(
+new Redop({ serverInfo: { name: "jwt-demo" } }).use(
   jwt({
     secret: process.env.JWT_SECRET ?? "dev-jwt-secret",
     issuer: "https://auth.example.com",
@@ -22,7 +22,7 @@ new Redop({ name: "jwt-demo" }).use(
 ## JWKS example
 
 ```ts
-new Redop({ name: "jwt-demo" }).use(
+new Redop({ serverInfo: { name: "jwt-demo" } }).use(
   jwt({
     jwksUri: "https://auth.example.com/.well-known/jwks.json",
     issuer: "https://auth.example.com",
@@ -34,7 +34,7 @@ new Redop({ name: "jwt-demo" }).use(
 ## Optional auth
 
 ```ts
-new Redop({ name: "jwt-demo" }).use(
+new Redop({ serverInfo: { name: "jwt-demo" } }).use(
   jwt({
     secret: process.env.JWT_SECRET ?? "dev-jwt-secret",
     optional: true,

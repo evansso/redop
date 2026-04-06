@@ -1,0 +1,123 @@
+---
+title: Plugins and Middleware Example
+description: Learn how to compose Redop plugins, middleware, auth helpers, and request context in one server.
+---
+
+Use this example when you want to see how a larger Redop app composes reusable behavior.
+
+## What it shows
+
+- a custom plugin built with `definePlugin(...)`
+- request middleware built with `middleware(...)`
+- built-in helpers like `logger(...)`, `apiKey(...)`, and `jwt(...)`
+- request context flowing from middleware into a tool handler
+
+## Full code
+
+```ts
+// ─────────────────────────────────────────────
+//  redop — plugin example
+//  Run: bun run examples/plugins.ts
+// ─────────────────────────────────────────────
+
+import {
+  apiKey,
+  definePlugin,
+  jwt,
+  logger,
+  middleware,
+  Redop,
+} from "../src/index";
+
+const timingPlugin = definePlugin({
+  description: "Attach timing data to every tool request.",
+  name: "timing",
+  version: "0.1.0",
+  setup() {
+    return new Redop<{ startedAt?: number }>()
+      .onBeforeHandle(({ ctx }) => {
+        ctx.startedAt = performance.now();
+      })
+      .onAfterHandle(({ ctx, tool }) => {
+        const startedAt = ctx.startedAt;
+        if (startedAt == null) {
+          return;
+        }
+
+        const ms = +(performance.now() - startedAt).toFixed(2);
+        console.log(`[timing] ${tool} finished in ${ms}ms`);
+      });
+  },
+});
+
+const requestIdPrefix = middleware<unknown, { shortRequestId: string }>(
+  async ({ ctx, next }) => {
+    ctx.shortRequestId = ctx.requestId.slice(0, 8);
+    return next();
+  }
+);
+
+new Redop({
+  serverInfo: {
+    description: "Plugin example server",
+    name: "plugin-example",
+    title: "Plugin Example",
+    version: "0.1.0",
+  },
+})
+  .use(logger({ level: "info" }))
+  .use(
+    apiKey({
+      key: process.env.API_SECRET ?? "dev-secret",
+    })
+  )
+  .use(
+    jwt({
+      optional: true,
+      secret: process.env.JWT_SECRET ?? "dev-jwt-secret",
+    })
+  )
+  .use(timingPlugin({}))
+  .use(requestIdPrefix)
+  .tool("hello", {
+    description: "Say hello and show middleware/plugin context",
+    inputSchema: {
+      properties: {
+        name: { type: "string" },
+      },
+      required: ["name"],
+      type: "object",
+    },
+    handler: ({ ctx, input }) => ({
+      greeting: `Hello, ${input.name}!`,
+      requestId: ctx.requestId,
+      shortRequestId: ctx.shortRequestId,
+    }),
+  })
+  .listen({
+    cors: true,
+    onListen: ({ url }) => {
+      console.log(`plugin example → ${url}`);
+      console.log("Use header: x-api-key: dev-secret");
+    },
+    port: process.env.PORT ?? 3000,
+  });
+```
+
+## Why this example is useful
+
+- `definePlugin(...)` packages hooks and setup logic as reusable server behavior
+- middleware can add request-scoped values before the tool handler runs
+- auth helpers and custom plugins both compose through `.use(...)`
+
+## Run it
+
+```sh
+bun run packages/redop/examples/plugins.ts
+```
+
+## Related pages
+
+- [Use built-in plugins](/guides/use-built-in-plugins)
+- [Build a plugin or middleware](/guides/build-plugin-or-middleware)
+- [Built-in plugins](/reference/built-in-plugins)

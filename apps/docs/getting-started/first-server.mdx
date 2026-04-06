@@ -1,18 +1,20 @@
 ---
 title: Your First Server
-description: Build and run the smallest useful Redop server before you add schemas, middleware, or auth.
+description: Build and run a minimal Redop server before you add schemas, middleware, resources, prompts, or auth.
 ---
 
-This is the fastest way to get a working Redop server running end to end.
+This is the fastest way to get a Redop server working end to end.
 
-## Copy-paste example
+## Copy this example
 
 ```ts
-import { Redop } from "@useagents/redop";
+import { Redop } from "@redopjs/redop";
 
 new Redop({
-  name: "hello-redop",
-  version: "0.1.0",
+  serverInfo: {
+    name: "hello-redop",
+    version: "0.1.0",
+  },
 })
   .tool("ping", {
     description: "Health check",
@@ -21,9 +23,10 @@ new Redop({
   .listen(3000);
 ```
 
-## What this does
+## What each part does
 
-- `new Redop(...)` defines the server identity returned during initialize
+- `new Redop(...)` defines the server identity returned during `initialize`
+- `serverInfo` groups the MCP-facing metadata for the server
 - `.tool(...)` registers one MCP tool
 - the handler returns plain serializable data
 - `.listen(3000)` starts the HTTP transport on port `3000`
@@ -31,14 +34,16 @@ new Redop({
 ## Run it
 
 ```sh
-bun run src/index.ts
+bun run --watch src/index.ts
 ```
 
 Once it starts, your MCP endpoint will be available at `http://localhost:3000/mcp`.
 
-## Why start this small?
+## Verify the result
 
-Start with one end-to-end tool first. Once the transport works and your client can connect, add schemas, middleware, hooks, resources, prompts, or auth one piece at a time.
+- send `initialize` to `http://localhost:3000/mcp`
+- confirm your client can discover the `ping` tool
+- keep the server small until the transport works cleanly
 
 ## Next
 

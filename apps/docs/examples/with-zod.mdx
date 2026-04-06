@@ -1,0 +1,178 @@
+---
+title: Zod Example
+description: See how Redop infers typed handler input from Zod schemas while exporting MCP tool schemas.
+---
+
+Use this example when you want full TypeScript inference from Zod schemas.
+
+## What it shows
+
+- `serverInfo` with richer metadata such as `title`, `description`, `icons`, and `websiteUrl`
+- typed tool input from `z.object(...)`
+- built-in logging with `logger(...)`
+- multiple tools for list, read, create, and search flows
+
+## Full code
+
+```ts
+// ─────────────────────────────────────────────
+//  redop — zod example
+//  Shows full type inference from Zod schemas.
+//  Run: bun run examples/with-zod.ts
+// ─────────────────────────────────────────────
+
+import { z } from "zod";
+
+import { logger, Redop } from "../src/index";
+
+const posts = [
+  {
+    body: "Building MCP servers is fun",
+    id: "1",
+    tags: ["mcp", "bun"],
+    title: "Hello redop",
+  },
+  {
+    body: "Full inference with zero overhead",
+    id: "2",
+    tags: ["typescript"],
+    title: "Zod schemas",
+  },
+];
+
+new Redop({
+  serverInfo: {
+    name: "with-zod",
+    title: "With Zod",
+    description: "With zod description",
+    version: "1.0.1",
+    icons: [
+      {
+        src: "https://media.useagents.site/useagents/icon.svg",
+        mimeType: "",
+      },
+    ],
+    websiteUrl: "https://useagents.site/docs",
+  },
+})
+  .use(logger({ level: "info" }))
+  .onBeforeHandle(({ ctx }) => {
+    (ctx as Record<string, unknown>).startedAt = performance.now();
+  })
+  .onAfterHandle(({ tool, ctx }) => {
+    const startedAt = (ctx as Record<string, unknown>).startedAt as
+      | number
+      | undefined;
+    const ms =
+      startedAt == null ? 0 : +(performance.now() - startedAt).toFixed(2);
+    console.log(`[global.after] ${tool} finished in ${ms}ms`);
+  })
+  .tool("list_posts", {
+    description: "List all blog posts with optional tag filter",
+    annotations: {
+      idempotentHint: true,
+      readOnlyHint: true,
+    },
+    inputSchema: z.object({
+      limit: z.number().int().min(1).max(100).default(10),
+      tag: z.string().optional(),
+    }),
+    handler: ({ input }) => {
+      const { tag } = input;
+      const filtered = tag ? posts.filter((p) => p.tags.includes(tag)) : posts;
+      return { posts: filtered.slice(0, input.limit), total: filtered.length };
+    },
+  })
+  .tool("get_post", {
+    description: "Get a single post by ID",
+    handler: ({ input }) => {
+      const post = posts.find((p) => p.id === input.id);
+      if (!post) {
+        throw new Error(`Post not found: ${input.id}`);
+      }
+      return post;
+    },
+    inputSchema: z.object({
+      id: z.string().min(1),
+    }),
+  })
+  .tool("create_post", {
+    description: "Create a new blog post",
+    annotations: {
+      destructiveHint: true,
+      openWorldHint: true,
+    },
+    inputSchema: z.object({
+      body: z.string().min(10),
+      tags: z.array(z.string().max(30)).max(10).default([]),
+      title: z.string().min(3).max(200),
+    }),
+    handler: ({ input, request }) => {
+      const post = {
+        body: input.body,
+        id: crypto.randomUUID().slice(0, 8),
+        tags: input.tags,
+        title: input.title,
+      };
+      posts.push(post);
+      return { created: post, sourceIp: request.ip ?? "unknown" };
+    },
+    after: ({ result }) => {
+      console.log(
+        `[tool.after] created post ${result.created.id} from ${result.sourceIp}`
+      );
+    },
+  })
+  .tool("search_posts", {
+    description: "Full-text search across post titles and bodies",
+    annotations: {
+      idempotentHint: true,
+      openWorldHint: true,
+      readOnlyHint: true,
+    },
+    handler: ({ input }) => {
+      const q = input.query.toLowerCase();
+      const results = posts.filter((p) => {
+        if (input.field === "title") {
+          return p.title.toLowerCase().includes(q);
+        }
+        if (input.field === "body") {
+          return p.body.toLowerCase().includes(q);
+        }
+        return (
+          p.title.toLowerCase().includes(q) || p.body.toLowerCase().includes(q)
+        );
+      });
+      return { results, query: input.query, count: results.length };
+    },
+    inputSchema: z.object({
+      query: z.string().min(1),
+      field: z.enum(["title", "body", "all"]).default("all"),
+    }),
+  })
+  .listen({
+    cors: true,
+    onListen: ({ url }) => {
+      console.log(`redop (zod example) → ${url}`);
+    },
+    port: process.env.PORT ?? 3000,
+  });
+```
+
+## Why this example is useful
+
+- handler input stays typed after validation
+- defaults and enums from Zod flow into handler input
+- tool hooks like `after(...)` can observe structured results
+
+## Run it
+
+```sh
+bun run packages/redop/examples/with-zod.ts
+```
+
+## Related pages
+
+- [Add typed input with Zod](/tutorials/add-zod-tool)
+- [Schema Adapters](/reference/schema-adapters)
+- [Tool definition](/reference/tool-definition)

@@ -1,0 +1,147 @@
+---
+title: Redop vs xmcp
+description: Compare Redop and xmcp so you can choose the MCP framework that fits your team, codebase structure, and deployment style.
+---
+
+Use this page when you are deciding between Redop and xmcp for a TypeScript MCP server.
+
+This comparison reflects the public docs and READMEs available on April 4, 2026. Both frameworks are evolving, so treat this as a snapshot of their current product shape rather than a permanent scorecard.
+
+## The short version
+
+Redop and xmcp are both TypeScript frameworks for building MCP servers, but they optimize for different developer workflows.
+
+- Redop is more explicit and composition-first.
+- xmcp is more opinionated and convention-first.
+
+If you want to register MCP surface area directly in code, compose feature modules with `.use(...)`, and control request lifecycle in detail, Redop is the better fit.
+
+If you want filesystem routing, auto-registration, and a framework that feels closer to a generated app scaffold, xmcp will likely feel faster at the start.
+
+## Where Redop is stronger
+
+### Explicit composition
+
+Redop treats composition as normal application code.
+
+You can:
+
+- register tools, resources, and prompts directly in fluent code
+- split a larger server into feature modules
+- mount those modules explicitly with `.use(...)`
+- decide exactly where middleware, hooks, and plugins are attached
+
+This makes larger servers easier to trace because registrations are not hidden behind directory conventions.
+
+See [Compose Features with `use(...)`](/guides/compose-features-with-use) and [Middleware vs Hooks vs Plugins](/concepts/composition).
+
+### More visible lifecycle control
+
+Redop exposes more of the execution pipeline directly:
+
+- `derive(...)`
+- `onTransform(...)`
+- schema parsing
+- `onBeforeHandle(...)`
+- middleware
+- `onAfterHandle(...)`
+- `afterResponse(...)`
+- `onError(...)`
+
+That is useful when you need to control request flow, decorate context, observe failures, or add post-response work without burying logic in handlers.
+
+See [Lifecycle and Execution Order](/concepts/lifecycle).
+
+### Typed request context across plugins
+
+Redop now treats plugin-added context as part of the app type.
+
+That means a plugin can write request-scoped data to `ctx`, and handlers can read that data later with typed access instead of falling back to ad hoc casts for normal fixed-key cases.
+
+This is especially useful for:
+
+- auth plugins
+- tenant resolution
+- request IDs
+- tracing context
+- feature flags derived per request
+
+See [Plugins](/documentation/plugins).
+
+### First-class resources and prompts in the same composition model
+
+Redop uses the same high-level composition model for:
+
+- tools
+- resources
+- prompts
+
+The same server instance can own all three, and global middleware and lifecycle hooks can wrap all three execution surfaces.
+
+That is useful if you think in MCP primitives instead of only in tool handlers.
+
+See [Resources](/documentation/resources), [Prompts](/documentation/prompts), and [Request, Context, and Handler Events](/reference/request-context).
+
+## Where xmcp is stronger
+
+### File-system routing and auto-registration
+
+xmcp strongly emphasizes a project structure like `src/tools`, `src/prompts`, and `src/resources`, with registrations discovered from the filesystem.
+
+That can feel simpler when:
+
+- you want conventions to drive project layout
+- you prefer files as the main organizational primitive
+- you want less explicit registration code in the root app
+
+### Faster scaffold-first experience
+
+xmcp currently pushes app initialization and adapters more aggressively.
+
+That shows up in:
+
+- `create-xmcp-app`
+- `init-xmcp`
+- adapter-oriented docs
+- built-in framing for existing web app environments
+
+If your first priority is "get an MCP server bootstrapped inside another app quickly," xmcp may feel more guided.
+
+### More visible ecosystem integrations
+
+xmcp's current docs make ecosystem integrations highly visible.
+
+If you want a framework that prominently advertises integrations and adapter-style workflows, xmcp currently presents that story more aggressively than Redop.
+
+## Choose Redop when
+
+- you want explicit registration instead of filesystem discovery
+- you want `.use(...)`-based feature modules
+- you care about request lifecycle and hook placement
+- you want plugins to pass typed request context into handlers
+- you want tools, resources, and prompts to feel equally first-class
+- you prefer a framework that feels closer to Elysia or Hono composition patterns
+
+## Choose xmcp when
+
+- you want conventions and folders to drive registration
+- you want auto-discovered tools and prompts
+- you want a scaffold-first framework experience
+- you are comfortable with more opinionated project structure
+- you want a framework that leans harder into adapters and integration packages out of the box
+
+## A useful mental model
+
+The cleanest way to think about the difference is:
+
+- Redop is a composition framework.
+- xmcp is a convention framework.
+
+Neither approach is universally better. The right choice depends on whether your team moves faster with explicit code structure or with stronger filesystem conventions.
+
+## Related pages
+
+- [Mental Model](/concepts/mental-model)
+- [Middleware vs Hooks vs Plugins](/concepts/composition)
+- [Compose Features with `use(...)`](/guides/compose-features-with-use)
+- [Plugins](/documentation/plugins)

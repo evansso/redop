@@ -1,0 +1,144 @@
+---
+title: Configuration
+description: Configure a Redop instance with serverInfo, capabilities, icons, instructions, and the metadata returned during MCP initialize.
+---
+
+Use `new Redop({...})` to configure the server itself before you register tools, resources, prompts, hooks, middleware, or plugins.
+
+This page explains what belongs in constructor configuration and how to think about it. For the exact constructor and method surface, use [Redop API Reference](/reference/redop).
+
+## Typical constructor shape
+
+```ts
+import { Redop } from "@redopjs/redop";
+
+new Redop({
+  serverInfo: {
+    name: "docs-server",
+    title: "Docs Server",
+    version: "0.1.0",
+    description: "Search docs and expose reusable prompts.",
+    websiteUrl: "https://example.com/docs",
+    instructions: "Call search_docs before answering from memory.",
+    icons: [
+      {
+        src: "https://example.com/icon.svg",
+        mimeType: "image/svg+xml",
+        sizes: ["any"],
+        theme: "light",
+      },
+    ],
+  },
+  capabilities: {
+    tools: true,
+    resources: true,
+    prompts: true,
+  },
+});
+```
+
+## What constructor configuration controls
+
+The Redop constructor configures two things:
+
+- MCP-facing server metadata
+- advertised MCP capability groups
+
+You register tools, resources, prompts, hooks, middleware, and transports after construction through chainable methods such as `.tool(...)`, `.resource(...)`, and `.listen(...)`.
+
+## `serverInfo`
+
+`serverInfo` is the MCP-facing identity your server returns during `initialize`.
+
+Treat it as product metadata, not implementation trivia.
+
+Use it to answer:
+
+- what this server is called
+- what it helps clients do
+- where its canonical docs live
+- what guidance a client should know up front
+
+### Identity fields
+
+Use these fields to make the server recognizable and stable:
+
+- `name` for the machine-readable implementation identifier
+- `title` for a friendlier display label
+- `version` for the deployed server version clients should see
+
+Keep `name` stable over time. Change `version` when the deployed server changes in ways clients may care about.
+
+### Description and instructions
+
+Use `description` for a short summary of the server's purpose.
+
+Use `instructions` for short usage guidance returned during initialize.
+
+This is a good place for:
+
+- preferred tool order
+- important constraints
+- safety expectations
+
+```ts
+instructions: "Use search_docs before fetch_page. Prefer resources for read-only state."
+```
+
+### Website and icons
+
+Use `websiteUrl` for the canonical site or docs URL.
+
+Use `icons` when you want the server to expose a visual identifier to clients that support one.
+
+```ts
+icons: [
+  {
+    src: "https://example.com/icon.png",
+    mimeType: "image/png",
+    sizes: ["96x96"],
+  },
+]
+```
+
+## `capabilities`
+
+`capabilities` controls which capability groups Redop advertises to clients.
+
+```ts
+capabilities: {
+  tools: true,
+  resources: true,
+  prompts: false,
+}
+```
+
+Disable a capability when that surface is intentionally unavailable from this server. If a capability is disabled, Redop omits it from initialize and related methods become unavailable to clients.
+
+## Deprecated top-level metadata fields
+
+Redop still accepts top-level fields like `name`, `title`, `version`, `description`, `icons`, `websiteUrl`, and `instructions`.
+
+Prefer `serverInfo` for all new code.
+
+## What does not belong in constructor config
+
+Keep these out of `new Redop({...})`:
+
+- tools
+- resources
+- prompts
+- tool or resource handlers
+- per-feature middleware logic
+- handler logic
+- transport startup options
+
+Register those separately after construction.
+
+## Related pages
+
+- [Listening and Transports](/documentation/listening-and-transports)
+- [Tools](/documentation/tools)
+- [Resources](/documentation/resources)
+- [Prompts](/documentation/prompts)
+- [Redop API Reference](/reference/redop)

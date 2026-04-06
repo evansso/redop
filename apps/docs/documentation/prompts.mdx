@@ -1,0 +1,162 @@
+---
+title: Prompts
+description: Understand when to use Redop prompts, how prompt arguments work, and how Redop resolves arguments and argumentsSchema.
+---
+
+Use a prompt when the client should ask your server for reusable prompt material instead of asking it to do the work.
+
+Prompts package instructions, context, and reusable prompt content. They do not execute the underlying task.
+
+## When a prompt is the right fit
+
+Use a prompt when:
+
+- the client wants reusable prompt material
+- named prompt arguments make sense
+- the server should package content, not perform the action
+
+Avoid a prompt when the client expects the server to execute logic or mutate state. That is a tool.
+
+## Choose an argument model
+
+Redop supports two ways to define prompt input:
+
+- `arguments` for named string arguments and MCP prompt metadata
+- `argumentsSchema` for parsed and validated handler input
+
+Use `arguments` when:
+
+- callers only need named string inputs
+- you want simple prompt metadata with `name`, `description`, and `required`
+- you do not need coercion or schema validation
+
+Use `argumentsSchema` when:
+
+- input should be parsed before the handler runs
+- you need validation beyond required string presence
+- values should be coerced, such as string to number
+
+## Use `arguments` for named string inputs
+
+When you register prompt `arguments` inline, Redop infers the handler `arguments` shape from that array. Required arguments become required string properties, and optional arguments stay optional.
+
+```ts
+app.prompt("code_review", {
+  description: "Review a code snippet",
+  arguments: [
+    { name: "code", required: true },
+    { name: "language" },
+  ],
+  handler: ({ arguments: args }) => [
+    {
+      role: "user",
+      content: {
+        type: "text",
+        text: `Review this ${args.language ?? "code"}:\n${args.code}`,
+      },
+    },
+  ],
+});
+```
+
+## Use `argumentsSchema` for parsed input
+
+Use `argumentsSchema` when prompt arguments need parsing or validation beyond raw strings.
+
+```ts
+import { z } from "zod";
+
+app.prompt("summarise", {
+  description: "Summarise a topic with a target sentence count",
+  argumentsSchema: z.object({
+    limit: z.coerce.number().int().min(1),
+    topic: z.string().min(1),
+  }),
+  handler: ({ arguments: args }) => [
+    {
+      role: "user",
+      content: {
+        type: "text",
+        text: `Summarise ${args.topic} in ${args.limit} sentences.`,
+      },
+    },
+  ],
+});
+```
+
+## What happens when you define both
+
+Defining both `arguments` and `argumentsSchema` does not throw by itself, but the two fields do different jobs.
+
+- `arguments` controls prompt metadata exposed to clients
+- `arguments` also drives the early missing-required-argument check
+- `argumentsSchema` controls prompt parsing and validation
+- `argumentsSchema` also controls the handler `arguments` type
+
+That means the handler follows the schema, not the array, when both are present.
+
+This can drift if the two definitions disagree. For example:
+
+- metadata can mark a field optional while the schema still rejects missing input
+- metadata can mark a field required while the schema allows omission
+
+Keep the two definitions aligned when you use both.
+
+Use both only when you need custom prompt metadata and schema-based parsing at the same time. Otherwise, prefer one source of truth.
+
+## Handler
+
+The prompt `handler` returns prompt content, not tool execution results.
+
+It can return:
+
+- an array of prompt messages
+- an object shaped like `{ description?, messages }`
+
+Keep prompt handlers focused on packaging reusable prompt material.
+
+## What belongs in a good prompt
+
+A good prompt usually has:
+
+- a stable name
+- a clear description
+- named arguments when callers need caller-supplied context
+- prompt messages that are ready for the client to use
+
+## Local hooks and middleware
+
+Prompts support per-prompt execution logic:
+
+- `before` runs before middleware and the handler
+- `after` runs after a successful result and may replace it
+- `afterResponse` runs after the response is written and cannot replace it
+- `middleware` wraps only that prompt
+
+Use `afterResponse` for non-critical work such as analytics or logging after the prompt response is already sent.
+
+## Prompt names and descriptions
+
+Prompt names are programmatic identifiers exposed to MCP clients. Use stable names such as `code_review`, `summarise`, or `docs/rewrite`.
+
+Descriptions should explain what the prompt helps the client produce. Prefer short task-oriented phrasing.
+
+## Prompts vs tools
+
+Choose a prompt when the server is packaging instructions.
+
+Choose a tool when the server is doing the work.
+
+For example:
+
+- `review_code` as a tool means the server performs review logic
+- `code_review` as a prompt means the server returns prompt material for a model or client to use
+
+## Related pages
+
+- [Register Prompts](/guides/register-prompts)
+- [Prompt definition](/reference/prompt-definition)
+- [Schema adapters](/reference/schema-adapters)
+- [onAfterResponse](/documentation/on-after-response)
+- [Tools](/documentation/tools)
+- [Resources](/documentation/resources)

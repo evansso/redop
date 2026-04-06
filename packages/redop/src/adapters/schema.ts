@@ -6,7 +6,7 @@
 //    Zod, Valibot, ArkType — all implement Standard Schema V1
 //    Plain JSON Schema objects
 //
-//  Explicit adapters exported from @useagents/redop:
+//  Explicit adapters exported from @redopjs/redop:
 //    typeboxAdapter, valibotAdapter, arktypeAdapter, jsonSchemaAdapter
 // ─────────────────────────────────────────────
 
@@ -121,7 +121,7 @@ export function standardSchemaAdapter<
       if (!hasJsonSchemaSupport(schema)) {
         throw new Error(
           "[redop] Schema provides validation but not JSON Schema generation. " +
-            "Pass an explicit schemaAdapter or use the named adapter for your library."
+            "Use a schema format that exposes JSON Schema generation."
         );
       }
       return schema["~standard"].jsonSchema.input({
@@ -184,7 +184,7 @@ export function jsonSchemaAdapter(): SchemaAdapter<JsonSchema, JsonSchema> {
 
 /**
  * Auto-detect the schema type and return the appropriate adapter.
- * Called by Redop when no explicit schemaAdapter is configured.
+ * Called by Redop to resolve supported schema formats automatically.
  *
  * Detection order:
  *   1. Standard Schema V1 (Zod ≥3.24, Valibot ≥1.x, ArkType ≥2.x)
@@ -206,7 +206,6 @@ export function detectAdapter(schema: unknown): SchemaAdapter {
 
   throw new Error(
     "[redop] Could not detect schema type. " +
-      "Pass a Standard Schema V1-compatible instance, a TypeBox schema, or a plain JSON Schema object. " +
-      "Alternatively, pass an explicit schemaAdapter to new Redop({ schemaAdapter })."
+      "Pass a Standard Schema V1-compatible instance, a TypeBox schema, or a plain JSON Schema object."
   );
 }

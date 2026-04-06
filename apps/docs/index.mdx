@@ -1,66 +1,161 @@
 ---
-title: Introduction
-description: Build Bun-first MCP servers with typed tools, middleware, hooks, plugins, resources, prompts, and HTTP or stdio transports.
+title: Welcome to Redop
+description: Redop is a Bun-first TypeScript framework for building production MCP servers with tools, resources, prompts, plugins, hooks, and HTTP or stdio transports.
 ---
 
-Redop is a Bun-first TypeScript framework for building MCP servers without hand-writing the transport, schema, and lifecycle plumbing yourself.
+> Redop is a Bun-first TypeScript framework for building production MCP servers.
+
+<Frame>![Hero](/images/hero.png)</Frame>
+
+<CardGroup cols={2}>
+  <Card
+    icon="rocket"
+    title="Getting Started"
+    href="/getting-started/installation"
+    cta="Start with installation"
+  >
+    Install Redop, scaffold a server, and run your first MCP endpoint over HTTP or stdio.
+  </Card>
+
+<Card
+  icon="blocks"
+  title="Core"
+  href="/documentation/tools"
+  cta="Learn the core primitives"
+>
+  Understand tools, resources, prompts, plugins, error handling, and lifecycle
+  hooks.
+</Card>
+
+<Card
+  icon="map"
+  title="Guides"
+  href="/guides/choose-transport"
+  cta="Solve specific tasks"
+>
+  Follow focused guides for transport choice, auth, plugins, resources, prompts,
+  and debugging.
+</Card>
+
+  <Card
+    icon="square-terminal"
+    title="Reference"
+    href="/reference/redop"
+    cta="Look up the API"
+  >
+    Find exact details for the Redop constructor, tool definitions, transports, context, and CLI.
+  </Card>
+</CardGroup>
+
+---
+
+## What Is Redop?
+
+Redop is a framework for building production MCP servers without hand-writing the transport, session, schema, and lifecycle plumbing yourself.
 
 Use it when you want to:
 
-- define tools with strong TypeScript inference
-- validate input with Zod, Standard Schema, or JSON Schema
-- add middleware, hooks, and reusable plugins
-- expose resources and prompts alongside tools
-- ship over HTTP or stdio with one framework API
+- define MCP tools with typed handler input
+- validate input with Zod, Standard Schema libraries, TypeBox, or JSON Schema
+- expose resources and prompts from the same server
+- add middleware, lifecycle hooks, and reusable plugins
+- run the same server over HTTP or stdio
 
-## Why Redop
+## What Is an MCP Server?
 
-Most MCP servers start the same way: wire JSON-RPC, parse tool input, manage request state, add auth, then bolt on logging and deployment details later. Redop turns those into framework primitives.
+An MCP server is a program that exposes capabilities to MCP clients.
 
-- `tool(...)` registers typed tools
-- `derive(...)` adds reusable request context
-- `resource(...)` and `prompt(...)` expose the rest of the MCP surface
-- middleware and hooks shape execution flow
-- `definePlugin(...)` lets you package reusable server behavior
+In practice, that usually means:
 
-## What the API feels like
+- tools for actions and workflows
+- resources for readable data addressed by URI
+- prompts for reusable prompt material
+- protocol-level metadata, session handling, and capability discovery
+
+Redop gives you those primitives through one framework API instead of making you implement the protocol plumbing by hand.
+
+## Why Bun?
+
+Redop is Bun-first, which means the default developer experience assumes you are running your server with Bun.
+
+Bun fits Redop well because it gives you:
+
+- a fast TypeScript-friendly runtime
+- a simple local development loop
+- a single toolchain for installing, running, and shipping the server
+
+```sh
+bun add @redopjs/redop zod
+bun run --watch src/index.ts
+```
+
+---
+
+## What You Build With Redop
+
+<CardGroup cols={2}>
+  <Card icon="wrench" title="Tools" href="/documentation/tools">
+    Define actions with names, descriptions, schemas, annotations, hooks, middleware, and handlers.
+  </Card>
+
+<Card icon="database" title="Resources" href="/documentation/resources">
+  Expose readable data through static or template URIs, with optional
+  subscriptions.
+</Card>
+
+<Card icon="message-square" title="Prompts" href="/documentation/prompts">
+  Package reusable prompt material with names, descriptions, arguments, and
+  messages.
+</Card>
+
+  <Card icon="plug" title="Plugins" href="/documentation/plugins">
+    Reuse hooks, middleware, tools, resources, and prompts as one composable unit.
+  </Card>
+</CardGroup>
+
+Redop scales cleanly when you split a larger server into feature modules and compose them with `.use(...)`.
+
+---
+
+## Quick Example
 
 ```ts
-import { Redop } from "@useagents/redop";
+import { Redop } from "@redopjs/redop";
 import { z } from "zod";
 
 new Redop({
-  name: "docs-server",
-  title: "Docs Server",
-  version: "0.1.0",
-  description: "Search docs and return answers.",
+  serverInfo: {
+    name: "docs-server",
+    title: "Docs Server",
+    version: "0.1.0",
+    description: "Search docs and return answers.",
+  },
 })
-  .tool("search", {
-    description: "Search docs",
-    input: z.object({
+  .tool("search_docs", {
+    description: "Search internal docs",
+    inputSchema: z.object({
       query: z.string().min(1),
     }),
     handler: ({ input }) => {
-      return { query: input.query, results: [] };
+      return {
+        query: input.query,
+        results: [],
+      };
     },
   })
   .listen(3000);
 ```
 
-## What you get
+For a hosted server, the MCP endpoint will be available at `http://localhost:3000/mcp`.
 
-- typed handler input
-- request-aware middleware
-- global and tool-local hooks
-- built-in plugins for logging and authentication
-- HTTP and stdio transports
-- resources and prompts when your server needs more than tools
+---
 
-## Start here
+## Start Here
 
 - [Installation](/getting-started/installation)
 - [Create a project with `create-redop-app`](/getting-started/create-redop-app)
 - [Your first server](/getting-started/first-server)
-- [Connect over HTTP](/getting-started/connect-http)
-- [Connect over stdio](/getting-started/connect-stdio)
-- [Verify with local clients](/getting-started/verify-clients)
+- [Tools](/documentation/tools)
+- [Resources](/documentation/resources)
+- [Prompts](/documentation/prompts)
+- [Compose feature modules with `use`](/guides/compose-features-with-use)

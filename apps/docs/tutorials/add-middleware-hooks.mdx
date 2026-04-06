@@ -14,7 +14,7 @@ This tutorial shows how to add shared behavior around your tools.
 ## Step 1: Add middleware
 
 ```ts
-import { middleware, Redop } from "@useagents/redop";
+import { middleware, Redop } from "@redopjs/redop";
 
 const timing = middleware(async ({ ctx, next }) => {
   (ctx as Record<string, unknown>).startedAt = performance.now();
@@ -25,7 +25,7 @@ const timing = middleware(async ({ ctx, next }) => {
 ## Step 2: Add hooks
 
 ```ts
-new Redop({ name: "middleware-demo" })
+new Redop({ serverInfo: { name: "middleware-demo" } })
   .use(timing)
   .onBeforeHandle(({ tool }) => {
     console.log("starting", tool);

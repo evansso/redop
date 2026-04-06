@@ -2,6 +2,7 @@
 //  redop — HTTP transport (Streamable HTTP 2025-11-25)
 // ─────────────────────────────────────────────
 
+import { JSON5, serve } from "bun";
 import type {
   CapabilityOptions,
   JsonRpcRequest,
@@ -15,6 +16,7 @@ import type {
   ResourceContents,
   ServerInfoOptions,
 } from "../types";
+import { SseHub } from "./sse";
 
 // ── Task types ────────────────────────────────
 
@@ -66,7 +68,6 @@ function isOriginAllowed(origin: string | null, serverUrl: string): boolean {
     if (loopback.has(s.hostname) && loopback.has(o.hostname)) {
       return true;
     }
-    // Allow common local dev ports for inspectors
     if (o.hostname === "localhost" || o.hostname === "127.0.0.1") {
       return true;
     }
@@ -76,14 +77,25 @@ function isOriginAllowed(origin: string | null, serverUrl: string): boolean {
   }
 }
 
-function contentTypeForPath(pathname: string): string {
-  if (pathname.endsWith(".css")) return "text/css; charset=utf-8";
-  if (pathname.endsWith(".js")) return "text/javascript; charset=utf-8";
-  if (pathname.endsWith(".html")) return "text/html; charset=utf-8";
-  return "application/octet-stream";
+function scheduleAfterResponse(
+  afterResponse: (() => Promise<void>) | undefined,
+  onError?: (error: unknown) => void
+): void {
+  if (!afterResponse) {
+    return;
+  }
+  queueMicrotask(() => {
+    void Promise.resolve()
+      .then(() => afterResponse())
+      .catch((error) => {
+        onError?.(error);
+      });
+  });
 }
 
 // ── Session + task store ──────────────────────
+
+const TASK_RESULT_TIMEOUT_MS = 30_000;
 
 function createStore(sessionTimeoutMs: number) {
   const sessions = new Map<string, { lastSeen: number }>();
@@ -116,15 +128,6 @@ function createStore(sessionTimeoutMs: number) {
         sessions.set(id, { lastSeen: Date.now() });
         return id;
       },
-      ensure(id: string) {
-        const existing = sessions.get(id);
-        if (existing) {
-          existing.lastSeen = Date.now();
-          return id;
-        }
-        sessions.set(id, { lastSeen: Date.now() });
-        return id;
-      },
       touch(id: string) {
         const s = sessions.get(id);
         if (!s) {
@@ -138,6 +141,9 @@ function createStore(sessionTimeoutMs: number) {
       },
       delete(id: string) {
         sessions.delete(id);
+      },
+      ids(): IterableIterator<string> {
+        return sessions.keys();
       },
     },
     tasks: {
@@ -208,18 +214,33 @@ function createStore(sessionTimeoutMs: number) {
             start + limit < all.length ? String(start + limit) : undefined,
         };
       },
-      waitForCompletion(id: string): Promise<StoredTask | null> {
+      /**
+       * Wait for a task to reach a terminal state, with a hard deadline.
+       *
+       * Returns the task (possibly still non-terminal if the deadline fires
+       * before the task completes). Callers must check `task.status`.
+       */
+      waitForCompletion(
+        id: string,
+        timeoutMs = TASK_RESULT_TIMEOUT_MS
+      ): Promise<StoredTask | null> {
         return new Promise((resolve) => {
           const t = tasks.get(id);
           if (!t) {
-            resolve(null);
-            return;
+            return resolve(null);
           }
           if (isTerminal(t.status)) {
-            resolve(t);
-            return;
+            return resolve(t);
           }
-          t.waiters.push(() => resolve(tasks.get(id) ?? null));
+
+          const deadline = setTimeout(() => {
+            resolve(tasks.get(id) ?? null);
+          }, timeoutMs);
+
+          t.waiters.push(() => {
+            clearTimeout(deadline);
+            resolve(tasks.get(id) ?? null);
+          });
         });
       },
       _wake(t: StoredTask) {
@@ -243,17 +264,21 @@ interface RpcContext {
     name: string,
     args: Record<string, string> | undefined,
     req: RequestMeta
-  ) => Promise<PromptHandlerResult>;
+  ) => Promise<DeferredExecution<PromptHandlerResult>>;
+  hub: SseHub;
   prompts: Map<string, ResolvedPrompt>;
   protocolVersion: SupportedVersion;
-  readResource: (uri: string, req: RequestMeta) => Promise<ResourceContents>;
+  readResource: (
+    uri: string,
+    req: RequestMeta
+  ) => Promise<DeferredExecution<ResourceContents>>;
   requestMeta: RequestMeta;
   resources: Map<string, ResolvedResource>;
   runTool: (
     name: string,
     args: Record<string, unknown>,
     meta: RequestMeta
-  ) => Promise<unknown>;
+  ) => Promise<DeferredExecution<unknown>>;
   serverInfo: Required<ServerInfoOptions>;
   sessionId: string;
   store: ReturnType<typeof createStore>;
@@ -262,7 +287,20 @@ interface RpcContext {
   unsubscribeRes: (uri: string, sid: string) => void;
 }
 
+type DeferredExecution<R> =
+  | {
+      afterResponse: () => Promise<void>;
+      ok: true;
+      result: R;
+    }
+  | {
+      afterResponse: () => Promise<void>;
+      error: unknown;
+      ok: false;
+    };
+
 type RpcResponsePayload = {
+  afterResponse?: () => Promise<void>;
   result?: any;
   error?: { code: number; message: string };
 };
@@ -270,6 +308,27 @@ type RpcHandler = (
   params: any,
   ctx: RpcContext
 ) => Promise<RpcResponsePayload> | RpcResponsePayload;
+
+// ── Notification handlers (client → server, no id, no response) ──────────────
+
+type NotificationHandler = (params: any, ctx: RpcContext) => void;
+
+const NOTIFICATION_HANDLERS: Record<string, NotificationHandler> = {
+  "notifications/cancelled": (params, ctx) => {
+    const taskId = params?.taskId as string | undefined;
+    if (taskId) {
+      ctx.store.tasks.cancel(taskId);
+    }
+  },
+  "notifications/initialized": (_params, _ctx) => {
+    // Client confirms it has processed initialize. No action required server-side.
+  },
+  "notifications/roots/list_changed": (_params, _ctx) => {
+    // Future: trigger re-fetch of roots from client.
+  },
+};
+
+// ── Request handlers ──────────────────────────
 
 const RPC_HANDLERS: Record<string, RpcHandler> = {
   initialize: (params, ctx) => {
@@ -300,11 +359,9 @@ const RPC_HANDLERS: Record<string, RpcHandler> = {
     };
   },
 
-  ping: () => {
-    return { result: {} };
-  },
+  ping: () => ({ result: {} }),
 
-  "tools/list": (params, ctx) => {
+  "tools/list": (_params, ctx) => {
     if (!ctx.caps.tools) {
       return {
         error: { code: -32_601, message: "Tools capability not enabled" },
@@ -347,13 +404,21 @@ const RPC_HANDLERS: Record<string, RpcHandler> = {
       const task = ctx.store.tasks.create(p.task?.ttl);
       (async () => {
         try {
-          const raw = await ctx.runTool(
+          const execution = await ctx.runTool(
             p.name,
             (p.arguments ?? {}) as Record<string, unknown>,
             ctx.requestMeta
           );
+          if (!execution.ok) {
+            ctx.store.tasks.fail(task.taskId, String(execution.error));
+            queueMicrotask(() => {
+              void execution.afterResponse().catch(() => {});
+            });
+            return;
+          }
+          const raw = execution.result;
           const result: Record<string, unknown> = {
-            content: [{ type: "text", text: JSON.stringify(raw) }],
+            content: [{ type: "text", text: JSON5.stringify(raw) }],
             _meta: {
               "io.modelcontextprotocol/related-task": { taskId: task.taskId },
             },
@@ -362,6 +427,9 @@ const RPC_HANDLERS: Record<string, RpcHandler> = {
             result.structuredContent = raw;
           }
           ctx.store.tasks.complete(task.taskId, result);
+          queueMicrotask(() => {
+            void execution.afterResponse().catch(() => {});
+          });
         } catch (e) {
           ctx.store.tasks.fail(task.taskId, String(e));
         }
@@ -370,18 +438,28 @@ const RPC_HANDLERS: Record<string, RpcHandler> = {
     }
 
     try {
-      const raw = await ctx.runTool(
+      const execution = await ctx.runTool(
         p.name,
         (p.arguments ?? {}) as Record<string, unknown>,
         ctx.requestMeta
       );
+      if (!execution.ok) {
+        return {
+          afterResponse: execution.afterResponse,
+          result: {
+            content: [{ type: "text", text: String(execution.error) }],
+            isError: true,
+          },
+        };
+      }
+      const raw = execution.result;
       const result: Record<string, unknown> = {
-        content: [{ type: "text", text: JSON.stringify(raw) }],
+        content: [{ type: "text", text: JSON5.stringify(raw) }],
       };
       if (tool.outputSchema && raw !== null && typeof raw === "object") {
         result.structuredContent = raw;
       }
-      return { result };
+      return { afterResponse: execution.afterResponse, result };
     } catch (e) {
       return {
         result: { content: [{ type: "text", text: String(e) }], isError: true },
@@ -389,7 +467,7 @@ const RPC_HANDLERS: Record<string, RpcHandler> = {
     }
   },
 
-  "resources/list": (params, ctx) => {
+  "resources/list": (_params, ctx) => {
     if (!ctx.caps.resources) {
       return {
         error: { code: -32_601, message: "Resources capability not enabled" },
@@ -409,7 +487,7 @@ const RPC_HANDLERS: Record<string, RpcHandler> = {
     };
   },
 
-  "resources/templates/list": (params, ctx) => {
+  "resources/templates/list": (_params, ctx) => {
     if (!ctx.caps.resources) {
       return {
         error: { code: -32_601, message: "Resources capability not enabled" },
@@ -439,12 +517,28 @@ const RPC_HANDLERS: Record<string, RpcHandler> = {
       return { error: { code: -32_602, message: "Missing uri param" } };
     }
     try {
-      const contents = await ctx.readResource(uri, ctx.requestMeta);
+      const execution = await ctx.readResource(uri, ctx.requestMeta);
+      if (!execution.ok) {
+        return {
+          afterResponse: execution.afterResponse,
+          error: {
+            code: -32_602,
+            message:
+              execution.error instanceof Error
+                ? execution.error.message
+                : String(execution.error),
+          },
+        };
+      }
+      const contents = execution.result;
       const wireContent =
         contents.type === "text"
           ? { uri, mimeType: contents.mimeType, text: contents.text }
           : { uri, mimeType: contents.mimeType, blob: contents.blob };
-      return { result: { contents: [wireContent] } };
+      return {
+        afterResponse: execution.afterResponse,
+        result: { contents: [wireContent] },
+      };
     } catch (e) {
       return { error: { code: -32_602, message: String(e) } };
     }
@@ -478,7 +572,7 @@ const RPC_HANDLERS: Record<string, RpcHandler> = {
     return { result: {} };
   },
 
-  "prompts/list": (params, ctx) => {
+  "prompts/list": (_params, ctx) => {
     if (!ctx.caps.prompts) {
       return {
         error: { code: -32_601, message: "Prompts capability not enabled" },
@@ -507,9 +601,22 @@ const RPC_HANDLERS: Record<string, RpcHandler> = {
       return { error: { code: -32_602, message: "Missing name" } };
     }
     try {
-      const raw = await ctx.getPrompt(name, args, ctx.requestMeta);
+      const execution = await ctx.getPrompt(name, args, ctx.requestMeta);
+      if (!execution.ok) {
+        return {
+          afterResponse: execution.afterResponse,
+          error: {
+            code: -32_602,
+            message:
+              execution.error instanceof Error
+                ? execution.error.message
+                : String(execution.error),
+          },
+        };
+      }
+      const raw = execution.result;
       const result = Array.isArray(raw) ? { messages: raw } : raw;
-      return { result };
+      return { afterResponse: execution.afterResponse, result };
     } catch (e) {
       return { error: { code: -32_602, message: String(e) } };
     }
@@ -524,18 +631,37 @@ const RPC_HANDLERS: Record<string, RpcHandler> = {
   },
 
   "tasks/result": async (params, ctx) => {
-    const taskId = params?.taskId;
+    const taskId = params?.taskId as string | undefined;
+    if (!taskId) {
+      return { error: { code: -32_602, message: "Missing taskId" } };
+    }
+
     const task = ctx.store.tasks.get(taskId);
     if (!task) {
       return { error: { code: -32_602, message: "Task not found" } };
     }
+
+    // waitForCompletion has a hard 30s deadline — it returns the task regardless
+    // of its status, so we must check whether it actually completed.
     const final = await ctx.store.tasks.waitForCompletion(taskId);
     if (!final) {
       return { error: { code: -32_602, message: "Task expired" } };
     }
+
+    if (!isTerminal(final.status)) {
+      // Deadline fired before completion — tell the client to try again.
+      return {
+        error: {
+          code: -32_001,
+          message: `Task still ${final.status}. Poll again via tasks/get or retry tasks/result.`,
+        },
+      };
+    }
+
     if (final.rpcError) {
       return { error: final.rpcError };
     }
+
     return {
       result: {
         ...final.result,
@@ -556,11 +682,16 @@ const RPC_HANDLERS: Record<string, RpcHandler> = {
   },
 
   "tasks/cancel": (params, ctx) => {
-    const taskId = params?.taskId;
+    const taskId = params?.taskId as string | undefined;
+    if (!taskId) {
+      return { error: { code: -32_602, message: "Missing taskId" } };
+    }
+
     const task = ctx.store.tasks.get(taskId);
     if (!task) {
       return { error: { code: -32_602, message: "Task not found" } };
     }
+
     if (isTerminal(task.status)) {
       return {
         error: {
@@ -569,6 +700,7 @@ const RPC_HANDLERS: Record<string, RpcHandler> = {
         },
       };
     }
+
     ctx.store.tasks.cancel(taskId);
     return { result: taskPublic(ctx.store.tasks.get(taskId)!) };
   },
@@ -578,29 +710,8 @@ const RPC_HANDLERS: Record<string, RpcHandler> = {
 
 async function handleJsonRpc(
   body: JsonRpcRequest,
-  tools: Map<string, ResolvedTool>,
-  resources: Map<string, ResolvedResource>,
-  prompts: Map<string, ResolvedPrompt>,
-  runTool: (
-    name: string,
-    args: Record<string, unknown>,
-    meta: RequestMeta
-  ) => Promise<unknown>,
-  readResource: (uri: string, req: RequestMeta) => Promise<ResourceContents>,
-  getPrompt: (
-    name: string,
-    args: Record<string, string> | undefined,
-    req: RequestMeta
-  ) => Promise<PromptHandlerResult>,
-  subscribeRes: (uri: string, sid: string) => void,
-  unsubscribeRes: (uri: string, sid: string) => void,
-  requestMeta: RequestMeta,
-  serverInfo: Required<ServerInfoOptions>,
-  caps: Required<CapabilityOptions>,
-  store: ReturnType<typeof createStore>,
-  sessionId: string,
-  protocolVersion: SupportedVersion
-): Promise<JsonRpcResponse> {
+  ctx: RpcContext
+): Promise<JsonRpcResponse & { afterResponse?: () => Promise<void> }> {
   const { id, method, params } = body;
   const handler = RPC_HANDLERS[method];
 
@@ -612,27 +723,9 @@ async function handleJsonRpc(
     };
   }
 
-  // Pack variables into a context object for the handler
-  const ctx: RpcContext = {
-    tools,
-    resources,
-    prompts,
-    runTool,
-    readResource,
-    getPrompt,
-    subscribeRes,
-    unsubscribeRes,
-    requestMeta,
-    serverInfo,
-    caps,
-    store,
-    sessionId,
-    protocolVersion,
-  };
-
   try {
-    const responsePayload = await handler(params, ctx);
-    return { id, jsonrpc: "2.0", ...responsePayload };
+    const payload = await handler(params, ctx);
+    return { id, jsonrpc: "2.0", ...payload };
   } catch (err) {
     return {
       id,
@@ -649,10 +742,28 @@ type SupportedVersion = (typeof SUPPORTED_VERSIONS)[number];
 
 function negotiateVersion(clientVersion: string | undefined): SupportedVersion {
   if (!clientVersion) {
-    return SUPPORTED_VERSIONS[0];
+    // Spec: missing version header falls back to 2025-03-26
+    return "2025-03-26";
   }
-  const match = SUPPORTED_VERSIONS.find((version) => version === clientVersion);
-  return match ?? SUPPORTED_VERSIONS[0];
+  return SUPPORTED_VERSIONS.find((v) => v === clientVersion) ?? "2025-03-26";
+}
+
+export interface TransportHandle {
+  /**
+   * Broadcast to all sessions that have an open SSE stream.
+   * Use for notifications/tools/list_changed, notifications/resources/list_changed, etc.
+   */
+  broadcast(payload: unknown, options?: { event?: string }): void;
+  /**
+   * Push a server-initiated notification or request to a specific session.
+   * Returns false if the session has no open SSE stream (message is dropped).
+   */
+  push(
+    sessionId: string,
+    payload: unknown,
+    options?: { event?: string }
+  ): boolean;
+  stop(): void;
 }
 
 export function startHttpTransport(
@@ -663,72 +774,39 @@ export function startHttpTransport(
     name: string,
     args: Record<string, unknown>,
     meta: RequestMeta
-  ) => Promise<unknown>,
-  readResource: (uri: string, req: RequestMeta) => Promise<ResourceContents>,
+  ) => Promise<DeferredExecution<unknown>>,
+  readResource: (
+    uri: string,
+    req: RequestMeta
+  ) => Promise<DeferredExecution<ResourceContents>>,
   getPrompt: (
     name: string,
     args: Record<string, string> | undefined,
     req: RequestMeta
-  ) => Promise<PromptHandlerResult>,
+  ) => Promise<DeferredExecution<PromptHandlerResult>>,
   subscribeRes: (uri: string, sid: string) => void,
   unsubscribeRes: (uri: string, sid: string) => void,
   opts: ListenOptions,
   serverInfo: Required<ServerInfoOptions>,
   caps: Required<CapabilityOptions>
-) {
+): TransportHandle {
   const port = Number(opts.port ?? 3000);
   const hostname = opts.hostname ?? "127.0.0.1";
   const debug = opts.debug ?? false;
   const store = createStore(opts.sessionTimeout ?? 60_000);
   const mcpPath = opts.path ?? "/mcp";
-  const healthPath =
-    opts.health === true
-      ? "/health"
-      : opts.health && typeof opts.health === "object"
-        ? (() => {
-            const path = opts.health.path?.trim() || "/health";
-            return path.startsWith("/") ? path : `/${path}`;
-          })()
-        : null;
-  const sseClients = new Map<
-    string,
-    ReadableStreamDefaultController<Uint8Array>
-  >();
-  const enc = new TextEncoder();
-  const devUIEnabled = opts.devUI ?? process.env.NODE_ENV !== "production";
-  let devUiAssetsPromise:
-    | Promise<{ assets: Map<string, ReturnType<typeof Bun.file>>; html: string }>
-    | undefined;
+  const hub = new SseHub();
+
+  let healthPath: string | null = null;
+  if (opts.health === true) {
+    healthPath = "/health";
+  } else if (opts.health && typeof opts.health === "object") {
+    const p = opts.health.path?.trim() || "/health";
+    healthPath = p.startsWith("/") ? p : `/${p}`;
+  }
 
   if (healthPath && healthPath === mcpPath) {
     throw new Error("[redop:http] health path cannot match the MCP path");
-  }
-
-  function getDevUiAssets() {
-    if (!devUiAssetsPromise) {
-      devUiAssetsPromise = (async () => {
-        const htmlUrl = new URL("./ui/index.html", import.meta.url);
-        const htmlFile = Bun.file(htmlUrl);
-        const html = await htmlFile.text();
-        const assetPaths = [...html.matchAll(/(?:href|src)="([^"]+)"/g)]
-          .map((match) => match[1]!)
-          .filter(
-            (assetPath) =>
-              assetPath.startsWith("./") || assetPath.startsWith("../"),
-          );
-        const assets = new Map<string, ReturnType<typeof Bun.file>>();
-
-        for (const assetPath of assetPaths) {
-          const requestPath = new URL(assetPath, "https://redop.local/").pathname;
-          const assetUrl = new URL(assetPath, htmlUrl);
-          assets.set(requestPath, Bun.file(assetUrl));
-        }
-
-        return { html, assets };
-      })();
-    }
-
-    return devUiAssetsPromise;
   }
 
   function debugLog(event: string, data: Record<string, unknown>) {
@@ -738,57 +816,30 @@ export function startHttpTransport(
     console.error(`[redop:http] ${event}`, data);
   }
 
-  function sseChunk(data: string) {
-    return enc.encode(data);
-  }
-
-  function pushSse(sid: string, data: unknown) {
-    const ctrl = sseClients.get(sid);
-    if (!ctrl) {
-      return;
-    }
-    ctrl.enqueue(
-      sseChunk(`id: ${crypto.randomUUID()}\ndata: ${JSON.stringify(data)}\n\n`)
-    );
-  }
-
-  function pushLegacyEndpointEvent(
-    ctrl: ReadableStreamDefaultController<Uint8Array>,
-    sessionId: string,
-    origin: string
-  ) {
-    ctrl.enqueue(
-      sseChunk(
-        `event: endpoint\ndata: ${JSON.stringify({ sessionId, uri: `${origin}${mcpPath}` })}\n\n`
-      )
-    );
-  }
-
-  const server = Bun.serve({
+  const server = serve({
     port,
     hostname,
     idleTimeout: 255,
-    development: devUIEnabled,
-    async fetch(req) {
+
+    async fetch(req, bunServer) {
       const url = new URL(req.url);
       const origin = req.headers.get("origin");
       const ver = req.headers.get("mcp-protocol-version");
-      const incomingSessionId = req.headers.get("mcp-session-id");
 
       debugLog("request", {
         method: req.method,
         url: req.url,
         protocolVersion: ver,
-        sessionId: incomingSessionId,
+        sessionId: req.headers.get("mcp-session-id"),
         accept: req.headers.get("accept"),
         origin,
       });
 
-      // Origin guard (DNS-rebinding)
+      // ── Origin guard (DNS-rebinding) ─────────
       if (!isOriginAllowed(origin, req.url)) {
         debugLog("forbidden_origin", { origin, url: req.url });
         return new Response(
-          JSON.stringify({
+          JSON5.stringify({
             jsonrpc: "2.0",
             id: null,
             error: { code: -32_600, message: "Forbidden" },
@@ -797,9 +848,8 @@ export function startHttpTransport(
         );
       }
 
-      // CORS preflight
+      // ── CORS preflight ────────────────────────
       if (req.method === "OPTIONS") {
-        debugLog("preflight", { url: req.url });
         return new Response(null, {
           status: 204,
           headers: {
@@ -811,51 +861,15 @@ export function startHttpTransport(
         });
       }
 
-      if (devUIEnabled && req.method === "GET") {
-        if (url.pathname === "/") {
-          const { html } = await getDevUiAssets();
-          return new Response(html, {
-            headers: { "Content-Type": "text/html; charset=utf-8" },
-          });
-        }
-
-        const { assets } = await getDevUiAssets();
-        const asset = assets.get(url.pathname);
-        if (asset) {
-          return new Response(asset, {
-            headers: { "Content-Type": contentTypeForPath(url.pathname) },
-          });
-        }
-      }
-
-      // ── Provide the data the UI needs
-      if (
-        req.method === "GET" &&
-        url.pathname === "/_debug/data" &&
-        devUIEnabled
-      ) {
-        const data = {
-          capabilities: caps,
-          serverInfo,
-          tools: [...tools.values()],
-          resources: [...resources.values()],
-          prompts: [...prompts.values()],
-          mcpPath,
-        };
-        debugLog("debug_data", { url: req.url });
-        return Response.json(data);
-      }
-
+      // ── Health ────────────────────────────────
       if (
         healthPath &&
         (req.method === "GET" || req.method === "HEAD") &&
         url.pathname === healthPath
       ) {
-        debugLog("health", { method: req.method, path: url.pathname });
         if (req.method === "HEAD") {
           return new Response(null, { status: 200 });
         }
-
         return Response.json({
           ok: true,
           mcpPath,
@@ -864,7 +878,7 @@ export function startHttpTransport(
         });
       }
 
-      // Protocol version check
+      // ── Protocol version guard ────────────────
       if (ver && !SUPPORTED_VERSIONS.includes(ver as SupportedVersion)) {
         debugLog("unsupported_version", { url: req.url, protocolVersion: ver });
         return Response.json(
@@ -874,75 +888,41 @@ export function startHttpTransport(
       }
 
       if (url.pathname !== mcpPath) {
-        debugLog("not_found", { method: req.method, path: url.pathname });
         return new Response("Not Found", { status: 404 });
       }
 
-      // DELETE — session termination
+      // ── DELETE — session termination ──────────
       if (req.method === "DELETE") {
         const sid = req.headers.get("mcp-session-id");
-        if (sid && store.sessions.has(sid)) {
-          debugLog("session_closed", { sessionId: sid });
-          store.sessions.delete(sid);
-          try {
-            sseClients.get(sid)?.close();
-          } catch {}
-          sseClients.delete(sid);
-          return Response.json(
-            { ok: true, sessionId: sid, terminated: true },
-            { status: 200 }
-          );
-        }
-        if (sid) {
+        if (!(sid && store.sessions.has(sid))) {
           debugLog("session_close_missing", { sessionId: sid });
-          return Response.json(
-            { ok: true, sessionId: sid, terminated: false },
-            { status: 200 }
-          );
+          return Response.json({ error: "Session not found" }, { status: 404 });
         }
-        debugLog("session_close_without_id", { url: req.url });
-        return Response.json(
-          { ok: true, sessionId: null, terminated: false },
-          { status: 200 }
-        );
+        debugLog("session_closed", { sessionId: sid });
+        store.sessions.delete(sid);
+        hub.closeSession(sid);
+        return Response.json({ ok: true, sessionId: sid, terminated: true });
       }
 
-      // GET — SSE stream
+      // ── GET — SSE stream ──────────────────────
       if (req.method === "GET") {
         if (!(req.headers.get("accept") ?? "").includes("text/event-stream")) {
-          debugLog("sse_not_acceptable", {
-            accept: req.headers.get("accept"),
-            sessionId: incomingSessionId,
-          });
           return new Response("Not Acceptable", { status: 406 });
         }
-        const sid =
-          req.headers.get("mcp-session-id") ?? store.sessions.create();
-        let heartbeat: ReturnType<typeof setInterval> | undefined;
-        const stream = new ReadableStream<Uint8Array>({
-          start(ctrl) {
-            sseClients.set(sid, ctrl);
-            pushLegacyEndpointEvent(ctrl, sid, url.origin);
-            ctrl.enqueue(sseChunk(`id: ${crypto.randomUUID()}\ndata: \n\n`));
-            heartbeat = setInterval(() => {
-              try {
-                ctrl.enqueue(sseChunk(`: keep-alive ${Date.now()}\n\n`));
-              } catch {
-                if (heartbeat) {
-                  clearInterval(heartbeat);
-                }
-              }
-            }, 5000);
-            debugLog("sse_open", { sessionId: sid });
-          },
-          cancel() {
-            if (heartbeat) {
-              clearInterval(heartbeat);
-            }
-            sseClients.delete(sid);
-            debugLog("sse_closed", { sessionId: sid });
-          },
-        });
+
+        const sid = req.headers.get("mcp-session-id");
+        if (!(sid && store.sessions.has(sid))) {
+          debugLog("sse_invalid_session", { sessionId: sid });
+          return Response.json({ error: "Session not found" }, { status: 404 });
+        }
+
+        // Required by Bun for long-lived SSE connections — disables the idle timeout.
+        bunServer.timeout(req, 0);
+
+        debugLog("sse_open", { sessionId: sid });
+
+        const { stream } = hub.open(sid, req.headers.get("last-event-id"));
+
         return new Response(stream, {
           headers: {
             "Content-Type": "text/event-stream",
@@ -950,11 +930,13 @@ export function startHttpTransport(
             Connection: "keep-alive",
             "Mcp-Session-Id": sid,
             "Access-Control-Allow-Origin": origin ?? "*",
+            // nginx: prevent proxy buffering from holding SSE frames
+            "X-Accel-Buffering": "no",
           },
         });
       }
 
-      // POST — JSON-RPC
+      // ── POST — JSON-RPC ───────────────────────
       if (req.method === "POST") {
         let body: JsonRpcRequest;
         try {
@@ -971,39 +953,64 @@ export function startHttpTransport(
           );
         }
 
-        if (body.id === undefined || body.id === null || !body.method) {
-          debugLog("ignored_message", { body });
+        // ── Client-sent notifications (no id) ────
+        if (body.id === undefined || body.id === null) {
+          if (body.method) {
+            const notifHandler = NOTIFICATION_HANDLERS[body.method];
+            if (notifHandler) {
+              const sid = req.headers.get("mcp-session-id");
+              const activeSession = sid && store.sessions.has(sid) ? sid : "";
+              const ctx: RpcContext = buildCtx(activeSession, "2025-03-26");
+              try {
+                notifHandler(body.params, ctx);
+              } catch (e) {
+                debugLog("notification_handler_error", {
+                  method: body.method,
+                  error: String(e),
+                });
+              }
+            } else {
+              debugLog("ignored_notification", { method: body.method });
+            }
+          }
           return new Response(null, { status: 202 });
         }
 
-        const sid = req.headers.get("mcp-session-id");
-        let activeSession: string;
-        if (sid) {
-          if (store.sessions.touch(sid)) {
-            activeSession = sid;
-          } else {
-            activeSession = store.sessions.ensure(sid);
-            debugLog("session_adopted", {
-              method: body.method,
-              requestId: body.id,
-              sessionId: sid,
-            });
-          }
-        } else {
-          activeSession = store.sessions.create();
-          debugLog("session_created_for_post", {
-            method: body.method,
-            requestId: body.id,
-            sessionId: activeSession,
-          });
+        if (!body.method) {
+          return new Response(null, { status: 202 });
         }
 
-        if (body.method !== "initialize" && !sid) {
-          debugLog("legacy_post_without_session", {
+        // ── Session resolution ────────────────────
+        const sid = req.headers.get("mcp-session-id");
+        let activeSession: string;
+
+        if (body.method === "initialize") {
+          if (sid && store.sessions.has(sid)) {
+            // Re-initialize on an existing session — refresh and reuse.
+            store.sessions.touch(sid);
+            activeSession = sid;
+          } else {
+            // Fresh initialize — mint a new session.
+            activeSession = store.sessions.create();
+            debugLog("session_minted", { sessionId: activeSession });
+          }
+        } else if (sid && store.sessions.has(sid)) {
+          store.sessions.touch(sid);
+          activeSession = sid;
+        } else if (sid) {
+          // Unknown session ID on a non-initialize request → 404.
+          debugLog("post_unknown_session", {
+            sessionId: sid,
             method: body.method,
-            requestId: body.id,
-            sessionId: activeSession,
           });
+          return Response.json({ error: "Session not found" }, { status: 404 });
+        } else {
+          // No session ID on a non-initialize request → 400.
+          debugLog("post_missing_session", { method: body.method });
+          return Response.json(
+            { error: "Missing MCP-Session-Id header" },
+            { status: 400 }
+          );
         }
 
         const protocolVersion = negotiateVersion(
@@ -1022,28 +1029,17 @@ export function startHttpTransport(
           protocolVersion,
         });
 
-        if (body.method === "initialize") {
-          debugLog("initialize", {
-            requestId: body.id,
-            headerVersion: ver,
-            requestedVersion: (
-              body.params as { protocolVersion?: string } | undefined
-            )?.protocolVersion,
-            negotiatedVersion: protocolVersion,
-            sessionId: activeSession,
-          });
-        }
-
-        // Wire progress callback
+        // ── Progress callback ─────────────────────
         const progressToken = (body.params as any)?._meta?.progressToken as
           | string
           | number
           | undefined;
+
         const progressCallback =
           progressToken === undefined
             ? undefined
             : (p: { progress: number; total?: number; message?: string }) => {
-                pushSse(activeSession, {
+                hub.send(activeSession, {
                   jsonrpc: "2.0",
                   method: "notifications/progress",
                   params: { progressToken, ...p },
@@ -1061,33 +1057,28 @@ export function startHttpTransport(
           abortSignal: (req as any).signal,
         };
 
-        const response = await handleJsonRpc(
-          body,
-          tools,
-          resources,
-          prompts,
-          runTool,
-          readResource,
-          getPrompt,
-          subscribeRes,
-          unsubscribeRes,
-          requestMeta,
-          serverInfo,
-          caps,
-          store,
-          activeSession,
-          protocolVersion
-        );
+        const ctx = buildCtx(activeSession, protocolVersion, requestMeta);
+        const response = await handleJsonRpc(body, ctx);
+        const { afterResponse, ...wireResponse } = response;
 
         debugLog("rpc_response", {
           requestId: body.id,
           method: body.method,
           sessionId: activeSession,
           protocolVersion,
-          hasError: "error" in response,
+          hasError: "error" in wireResponse,
         });
 
-        return Response.json(response, {
+        scheduleAfterResponse(afterResponse, (error) => {
+          debugLog("after_response_error", {
+            requestId: body.id,
+            method: body.method,
+            sessionId: activeSession,
+            error: String(error),
+          });
+        });
+
+        return Response.json(wireResponse, {
           headers: {
             "Mcp-Session-Id": activeSession,
             "Mcp-Protocol-Version": protocolVersion,
@@ -1096,11 +1087,39 @@ export function startHttpTransport(
         });
       }
 
-      debugLog("method_not_allowed", {
-        method: req.method,
-        path: url.pathname,
-      });
       return new Response("Method Not Allowed", { status: 405 });
+
+      // ── Context factory ───────────────────────
+      function buildCtx(
+        sessionId: string,
+        protocolVersion: SupportedVersion,
+        requestMeta?: RequestMeta
+      ): RpcContext {
+        return {
+          tools,
+          resources,
+          prompts,
+          runTool,
+          readResource,
+          getPrompt,
+          subscribeRes,
+          unsubscribeRes,
+          requestMeta: requestMeta ?? {
+            headers: {},
+            method: "POST",
+            raw: req,
+            sessionId,
+            transport: "http",
+            url: req.url,
+          },
+          serverInfo,
+          caps,
+          store,
+          hub,
+          sessionId,
+          protocolVersion,
+        };
+      }
     },
   });
 
@@ -1108,12 +1127,18 @@ export function startHttpTransport(
   opts.onListen?.({ hostname, port, url });
 
   return {
-    stop() {
-      store.stop();
-      server.stop();
+    push(sessionId, payload, options) {
+      return hub.send(sessionId, payload, options);
     },
-    broadcast(sid: string, data: unknown) {
-      pushSse(sid, data);
+    broadcast(payload, options) {
+      for (const sid of store.sessions.ids()) {
+        hub.send(sid, payload, options);
+      }
+    },
+    stop() {
+      server.stop();
+      store.stop();
+      hub.closeAll();
     },
   };
 }

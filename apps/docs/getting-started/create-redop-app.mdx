@@ -1,11 +1,11 @@
 ---
 title: Create a Project with create-redop-app
-description: Scaffold a Bun-first Redop app with transport and deploy presets instead of starting from an empty folder.
+description: Scaffold a Bun-first Redop app with transport, schema, component, and deploy presets.
 ---
 
-Use `create-redop-app` when you want a starter project, a generated `src/index.ts`, and a docs-friendly project shape from day one.
+Use `create-redop-app` when you want a working Redop project instead of starting from an empty directory.
 
-## Start the scaffold
+## Run the scaffold
 
 ```sh
 bun create redop-app my-redop-app
@@ -17,9 +17,9 @@ You can also run the CLI directly:
 bunx create-redop-app my-redop-app --transport http --deploy railway
 ```
 
-## What the scaffold asks for
+## Choose your starter shape
 
-The interactive flow currently asks for:
+The interactive flow asks for:
 
 - project name
 - package manager
@@ -28,7 +28,7 @@ The interactive flow currently asks for:
 - transport (`http` or `stdio`)
 - deploy target for HTTP projects
 
-## What gets generated
+## Generated files
 
 Every starter includes:
 
@@ -49,28 +49,18 @@ Deploy presets can also add:
 - `fly.toml`
 - `vercel.json`
 
-## What the starter uses by default
+## Generated scripts
 
-- `@useagents/redop`
-- one schema path: `zod`, `json-schema`, `valibot`, or `typebox`
-- `typescript`
-- Bun-friendly scripts for `dev`, `start`, and `typecheck`
+- `dev`: `bun run --watch src/index.ts`
+- `typecheck`: `tsc --noEmit`
 
-## Running the generated app
-
-After scaffolding:
+Run the generated app with:
 
 ```sh
 cd my-redop-app
 bun install
 bun dev
 ```
-
-`create-redop-app` now generates:
-
-- `dev`: `bun run --watch src/index.ts`
-- `start`: `bun run src/index.ts`
-- `typecheck`: `tsc --noEmit`
 
 ## Next
 

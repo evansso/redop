@@ -17,14 +17,12 @@ const timingPlugin = definePlugin({
   name: "timing",
   version: "0.1.0",
   setup() {
-    return new Redop()
+    return new Redop<{ startedAt?: number }>()
       .onBeforeHandle(({ ctx }) => {
-        (ctx as Record<string, unknown>).startedAt = performance.now();
+        ctx.startedAt = performance.now();
       })
       .onAfterHandle(({ ctx, tool }) => {
-        const startedAt = (ctx as Record<string, unknown>).startedAt as
-          | number
-          | undefined;
+        const startedAt = ctx.startedAt;
         if (startedAt == null) {
           return;
         }
@@ -35,16 +33,20 @@ const timingPlugin = definePlugin({
   },
 });
 
-const requestIdPrefix = middleware(async ({ ctx, next }) => {
-  (ctx as Record<string, unknown>).shortRequestId = ctx.requestId.slice(0, 8);
-  return next();
-});
+const requestIdPrefix = middleware<unknown, { shortRequestId: string }>(
+  async ({ ctx, next }) => {
+    ctx.shortRequestId = ctx.requestId.slice(0, 8);
+    return next();
+  }
+);
 
 new Redop({
-  description: "Plugin example server",
-  name: "plugin-example",
-  title: "Plugin Example",
-  version: "0.1.0",
+  serverInfo: {
+    description: "Plugin example server",
+    name: "plugin-example",
+    title: "Plugin Example",
+    version: "0.1.0",
+  },
 })
   .use(logger({ level: "info" }))
   .use(
@@ -59,10 +61,10 @@ new Redop({
     })
   )
   .use(timingPlugin({}))
-  .middleware(requestIdPrefix)
+  .use(requestIdPrefix)
   .tool("hello", {
     description: "Say hello and show middleware/plugin context",
-    input: {
+    inputSchema: {
       properties: {
         name: { type: "string" },
       },
@@ -72,7 +74,7 @@ new Redop({
     handler: ({ ctx, input }) => ({
       greeting: `Hello, ${input.name}!`,
       requestId: ctx.requestId,
-      shortRequestId: (ctx as Record<string, unknown>).shortRequestId,
+      shortRequestId: ctx.shortRequestId,
     }),
   })
   .listen({

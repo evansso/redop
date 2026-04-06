@@ -1,0 +1,64 @@
+---
+title: Basic Server Example
+description: Start from the smallest Redop HTTP server with a health tool and a simple typed echo tool.
+---
+
+Use this example when you want the smallest useful Redop server.
+
+## What it shows
+
+- `serverInfo` for MCP-facing metadata
+- a no-input `ping` tool
+- a JSON-Schema-style `echo` tool
+- HTTP transport startup with `.listen(3000)`
+
+## Full code
+
+```ts
+import { Redop } from "../src/index";
+
+new Redop<{ startedAt?: number }>({
+  serverInfo: {
+    name: "redop",
+    title: "Redop",
+    description: "Hello mcp world",
+  },
+})
+  .onBeforeHandle(({ ctx }) => {
+    ctx.startedAt = performance.now();
+  })
+  .tool("ping", {
+    description: "Health check",
+    handler: () => ({ pong: true, ts: Date.now() }),
+  })
+  .tool("echo", {
+    handler: ({ input }) =>
+      typeof input.message === "string"
+        ? input.message.toUpperCase()
+        : input.message,
+    inputSchema: {
+      type: "object",
+      properties: { message: { type: "string" } },
+      required: ["message"],
+    },
+  })
+  .listen(3000);
+```
+
+## Why this example is useful
+
+- the constructor uses `serverInfo` instead of the older top-level metadata fields
+- `onBeforeHandle(...)` adds request-scoped timing data
+- the server exposes `ping` and `echo` over HTTP at `/mcp`
+
+## Run it
+
+```sh
+bun run packages/redop/examples/basic.ts
+```
+
+## Related pages
+
+- [Your first server](/getting-started/first-server)
+- [Connect over HTTP](/getting-started/connect-http)
+- [Redop API Reference](/reference/redop)

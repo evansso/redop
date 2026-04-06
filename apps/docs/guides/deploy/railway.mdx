@@ -28,11 +28,13 @@ If you used `create-redop-app --transport http --deploy railway`, you already ha
 ## Example `src/index.ts`
 
 ```ts
-import { Redop } from "@useagents/redop";
+import { Redop } from "@redopjs/redop";
 
 new Redop({
-  name: "railway-redop",
-  version: "0.1.0",
+  serverInfo: {
+    name: "railway-redop",
+    version: "0.1.0",
+  },
 })
   .tool("ping", {
     handler: () => ({ ok: true }),

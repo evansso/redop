@@ -1,0 +1,196 @@
+---
+title: Module Composition Example
+description: See how to organize a Redop server into feature modules and compose them with use instead of relying on implicit grouping.
+---
+
+Use this example when your server is growing beyond a single file and you want a clear alternative to grouping.
+
+## What it shows
+
+- one `Redop` instance per feature area
+- explicit tool and resource names like `notes.list` and `notes://{id}`
+- root-level composition with `.use(...)`
+- a folder pattern that scales cleanly as the server grows
+
+## Single-file runnable example
+
+This is the runnable example that ships in `packages/redop/examples/modules.ts`.
+
+```ts
+// ─────────────────────────────────────────────
+//  redop — feature module composition example
+//  Run: bun run examples/modules.ts
+// ─────────────────────────────────────────────
+
+import { Redop } from "../src/index";
+
+const notes = new Redop()
+  .tool("notes.list", {
+    description: "List notes",
+    handler: () => ({
+      notes: [
+        { id: "1", title: "Ship modules example" },
+        { id: "2", title: "Keep names explicit" },
+      ],
+    }),
+  })
+  .tool("notes.create", {
+    description: "Create a note",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+      },
+      required: ["title"],
+    },
+    handler: ({ input }) => ({
+      created: {
+        id: crypto.randomUUID().slice(0, 8),
+        title: input.title,
+      },
+    }),
+  })
+  .resource("notes://{id}", {
+    name: "Note",
+    handler: async ({ params }) => ({
+      type: "text",
+      text: JSON.stringify({ id: params.id, title: "Example note" }),
+    }),
+  });
+
+const users = new Redop().tool("users.get", {
+  description: "Get a user by ID",
+  inputSchema: {
+    type: "object",
+    properties: {
+      id: { type: "string" },
+    },
+    required: ["id"],
+  },
+  handler: ({ input }) => ({
+    id: input.id,
+    name: "Ada Lovelace",
+  }),
+});
+
+new Redop({
+  serverInfo: {
+    description: "Feature-module composition example server",
+    name: "modules-example",
+    title: "Modules Example",
+    version: "0.1.0",
+  },
+})
+  .use(notes)
+  .use(users)
+  .listen({
+    cors: true,
+    onListen: ({ url }) => {
+      console.log(`modules example → ${url}`);
+    },
+    port: process.env.PORT ?? 3000,
+  });
+```
+
+## Recommended multi-file layout
+
+When the server grows, split the same pattern into feature folders instead of bringing back grouping.
+
+### `src/features/notes/index.ts`
+
+```ts
+import { Redop } from "@redopjs/redop";
+
+const notes = new Redop()
+  .tool("notes.list", {
+    description: "List notes",
+    handler: () => ({
+      notes: [],
+    }),
+  })
+  .tool("notes.create", {
+    description: "Create a note",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+      },
+      required: ["title"],
+    },
+    handler: ({ input }) => ({
+      created: {
+        id: crypto.randomUUID(),
+        title: input.title,
+      },
+    }),
+  })
+  .resource("notes://{id}", {
+    name: "Note",
+    handler: async ({ params }) => ({
+      type: "text",
+      text: JSON.stringify({ id: params.id }),
+    }),
+  });
+
+export default notes;
+```
+
+### `src/features/users/index.ts`
+
+```ts
+import { Redop } from "@redopjs/redop";
+
+const users = new Redop().tool("users.get", {
+  description: "Get a user by ID",
+  inputSchema: {
+    type: "object",
+    properties: {
+      id: { type: "string" },
+    },
+    required: ["id"],
+  },
+  handler: ({ input }) => ({
+    id: input.id,
+    name: "Ada Lovelace",
+  }),
+});
+
+export default users;
+```
+
+### `src/index.ts`
+
+```ts
+import { Redop } from "@redopjs/redop";
+import notes from "./features/notes";
+import users from "./features/users";
+
+new Redop({
+  serverInfo: {
+    name: "my-server",
+    version: "0.1.0",
+  },
+})
+  .use(notes)
+  .use(users)
+  .listen(3000);
+```
+
+## Why this example is useful
+
+- each feature module can be tested in isolation
+- the main server only owns top-level metadata and composition
+- public MCP names stay explicit and stable
+- `.use(...)` becomes the only composition model you need to teach
+
+## Run it
+
+```sh
+bun run packages/redop/examples/modules.ts
+```
+
+## Related pages
+
+- [Compose Features with use](/guides/compose-features-with-use)
+- [Plugins](/documentation/plugins)
+- [Redop API Reference](/reference/redop)

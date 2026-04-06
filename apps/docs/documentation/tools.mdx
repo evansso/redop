@@ -1,0 +1,262 @@
+---
+title: Tools
+description: Understand how to design Redop tools, including schemas, annotations, hooks, middleware, and when to use each tool hint.
+---
+
+Use a tool when the client is asking your server to do work.
+
+In Redop, a tool is defined by the registration call as a whole, not just the handler. That means the tool name, metadata, schemas, annotations, hooks, middleware, and handler should be designed together.
+
+This page focuses on tool design and usage. For the exact field-by-field contract, use [Tool Definition](/reference/tool-definition).
+
+## A complete tool usually includes
+
+```ts
+import { Redop } from "@redopjs/redop";
+import { z } from "zod";
+
+new Redop({
+  serverInfo: {
+    name: "docs-server",
+  },
+}).tool("search_docs", {
+  title: "Search Docs",
+  description: "Search internal docs by query",
+  inputSchema: z.object({
+    query: z.string().min(1),
+    limit: z.number().int().min(1).max(20).default(10),
+  }),
+  outputSchema: z.object({
+    query: z.string(),
+    results: z.array(z.object({}).passthrough()),
+  }),
+  annotations: {
+    openWorldHint: true,
+    readOnlyHint: true,
+    idempotentHint: true,
+  },
+  before: async ({ tool }) => {
+    console.log(`starting ${tool}`);
+  },
+  after: async ({ result }) => {
+    return { ...result, source: "docs" };
+  },
+  afterResponse: async ({ input, result }) => {
+    analytics.capture("search_impression", {
+      query: input.query,
+      count: result.results.length,
+    });
+  },
+  handler: async ({ input }) => {
+    return {
+      query: input.query,
+      results: [],
+    };
+  },
+});
+```
+
+## The registration call has two parts
+
+Every tool starts with:
+
+- the tool name, which is the first argument to `.tool(...)`
+- the tool definition object, which is the second argument
+
+```ts
+app.tool("search_docs", {
+  description: "Search internal docs",
+  handler: async ({ input }) => ({ results: [] }),
+});
+```
+
+The name identifies the tool to MCP clients. The object configures how the tool is described, validated, and executed.
+
+## Tool name
+
+The tool name is a programmatic identifier exposed to MCP clients.
+
+Use a tool name that is:
+
+- stable
+- action-oriented
+- easy for clients to understand
+
+Good examples:
+
+- `search_docs`
+- `create_post`
+- `list_users`
+- `notes.list`
+- `billing.invoice.create`
+
+Avoid vague or overloaded names like:
+
+- `run`
+- `handle`
+- `process`
+
+Redop validates tool names at registration time, so naming mistakes fail during setup instead of during the first client request.
+
+## Design the tool as one unit
+
+A good tool definition is coherent from top to bottom:
+
+- the name states the action
+- the description explains the purpose
+- the input schema defines the contract
+- the output schema describes the result
+- annotations communicate behavior
+- hooks and middleware stay tool-specific
+- the handler performs the actual work
+
+If those parts feel unrelated, the tool probably needs a better boundary.
+
+## Metadata
+
+Use metadata to help clients and agents understand the tool before calling it:
+
+- `description` should explain what the tool does in plain language
+- `title` is only useful when a friendlier display label helps
+- `icons` are optional and only matter for clients that render them
+
+Use `description` for meaning. Use `title` only when a friendlier display label is useful.
+
+## Input schema
+
+`inputSchema` defines the arguments the tool accepts.
+
+Use it when you need:
+
+- runtime validation
+- type inference
+- JSON Schema exported to MCP clients
+
+```ts
+inputSchema: z.object({
+  query: z.string().min(1),
+  limit: z.number().int().min(1).max(20).default(10),
+})
+```
+
+If you omit `inputSchema`, the handler receives the raw params object.
+
+See [Validation](/documentation/validation) for a full guide to supported schema libraries and runtime behavior.
+
+## Output schema
+
+`outputSchema` describes the structured result shape for clients and agents.
+
+Like `inputSchema`, it can use any schema format Redop can adapt:
+
+- Standard Schema libraries such as Zod, Valibot, and ArkType
+- TypeBox
+- plain JSON Schema
+
+Redop converts the declared schema to JSON Schema for MCP tool metadata.
+It does not currently validate handler return values against `outputSchema` at runtime.
+
+Use it when clients should understand the response shape before calling the tool.
+
+## Annotations
+
+`annotations` give clients extra behavioral hints. Redop passes these hints through to MCP clients, but it does not enforce them at runtime.
+
+Use annotations when they help a client or agent decide whether and how to call a tool.
+
+## How to choose each annotation
+
+| Annotation | Meaning | Use when | Avoid when |
+| ----- | ----- | ----- | ----- |
+| `readOnlyHint` | The tool reads data and does not mutate state. | Search, list, inspect, preview, validate, fetch. | The tool creates, updates, deletes, triggers, or mutates anything. |
+| `destructiveHint` | The tool may make a hard-to-undo or high-impact change. | Delete, cancel, revoke, overwrite, charge, publish live changes. | Safe reads or routine low-risk updates. |
+| `idempotentHint` | Repeating the same call should have the same effect without compounding side effects. | Sync, set, replace, upsert, ensure-state operations. | Retries would duplicate work, create duplicates, or trigger repeated actions. |
+| `openWorldHint` | The tool depends on external or live information beyond the server's local state. | Web search, external APIs, SaaS lookups, live environment inspection. | Fully local deterministic operations over server-owned data. |
+
+## Examples
+
+Use `readOnlyHint` for tools such as:
+
+- `search_docs`
+- `list_posts`
+- `preview_invoice`
+
+Use `destructiveHint` for tools such as:
+
+- `delete_post`
+- `cancel_deployment`
+- `revoke_api_key`
+
+Use `idempotentHint` for tools such as:
+
+- `sync_customer`
+- `set_feature_flag`
+- `upsert_contact`
+
+Use `openWorldHint` for tools such as:
+
+- `search_web`
+- `fetch_github_issue`
+- `lookup_stripe_customer`
+
+## Combining annotations
+
+Annotations are independent hints, so a tool can use more than one.
+
+Common combinations:
+
+- `readOnlyHint: true` and `idempotentHint: true` for local search or lookup tools
+- `readOnlyHint: true` and `openWorldHint: true` for external search or live fetch tools
+- `destructiveHint: true` and `openWorldHint: true` for tools that change remote systems
+
+Avoid contradictory combinations such as `readOnlyHint: true` with `destructiveHint: true`.
+
+## Hooks and middleware
+
+Tool definitions can include per-tool execution logic around the handler:
+
+- `before` runs before middleware and the handler
+- `after` runs after a successful result and may replace it
+- `afterResponse` runs after the response is written and cannot replace the result
+- `middleware` wraps only that tool
+
+Use these only for behavior that belongs to one tool. Shared concerns belong in global hooks, middleware, or plugins.
+
+Use `afterResponse` for:
+
+- analytics
+- logging
+- metrics
+- search impressions
+
+Use `after` instead when the logic must still be able to inspect or replace the result before the client receives it.
+
+## Handler
+
+`handler` is the tool implementation. It is the only required field.
+
+The handler receives:
+
+- `input`
+- `ctx`
+- `request`
+- `tool`
+- `emit.progress(...)`
+- `signal`
+
+Return plain serializable data from the handler whenever possible.
+
+## Task support
+
+Use `taskSupport` only when you are designing around task-aware clients. Most tools can leave it unset.
+
+## Related pages
+
+- [Tool definition](/reference/tool-definition)
+- [Validation](/documentation/validation)
+- [onAfterResponse](/documentation/on-after-response)
+- [Add typed input with Zod](/tutorials/add-zod-tool)
+- [Request, Context, and Handler Events](/reference/request-context)
+- [Error Handling](/documentation/error-handling)
+- [Resources](/documentation/resources)
+- [Prompts](/documentation/prompts)

@@ -26,7 +26,7 @@ function renderPackageJson(options: ResolvedOptions) {
   return JSON.stringify(
     {
       dependencies: {
-        "@useagents/redop": "latest",
+        "@redopjs/redop": "latest",
         ...schemaDeps,
       },
       devDependencies: {
@@ -37,7 +37,6 @@ function renderPackageJson(options: ResolvedOptions) {
       private: true,
       scripts: {
         dev: "bun run --watch src/index.ts",
-        start: "bun run src/index.ts",
         typecheck: "tsc --noEmit",
       },
       type: "module",
@@ -52,27 +51,33 @@ function renderTsconfig() {
   return JSON.stringify(
     {
       compilerOptions: {
+        // Environment setup & latest features
+        lib: ["ESNext"],
         target: "ESNext",
-        module: "ESNext",
-        moduleResolution: "bundler",
+        module: "Preserve",
         moduleDetection: "force",
         allowJs: true,
+        types: ["bun"],
 
-        strict: true,
-        noUncheckedIndexedAccess: true,
-        noImplicitOverride: true,
-        skipLibCheck: true,
-
-        // Bun handles the "emit", so we just type-check
-        noEmit: true,
-
-        // Standard for modern Bun/Bundler setups
+        // Bundler mode
+        moduleResolution: "bundler",
         allowImportingTsExtensions: true,
         verbatimModuleSyntax: true,
+        noEmit: true,
 
-        outDir: "./dist",
+        // Best practices
+        strict: true,
+        skipLibCheck: true,
+        noFallthroughCasesInSwitch: true,
+        noUncheckedIndexedAccess: true,
+        noImplicitOverride: true,
+
+        // Some stricter flags (disabled by default)
+        noUnusedLocals: false,
+        noUnusedParameters: false,
+        noPropertyAccessFromIndexSignature: false,
       },
-      exclude: ["node_modules", "dist"],
+      exclude: ["node_modules"],
       include: ["src/**/*"],
     },
     null,
@@ -165,7 +170,7 @@ function renderComponentChain(options: ResolvedOptions) {
   if (components.has("tools")) {
     blocks.push(`  .tool("ping", {
     description: "Health check tool",
-    input: ${renderToolInput(options.schemaLibrary)},
+    inputSchema: ${renderToolInput(options.schemaLibrary)},
     handler: ({ input }) => ({
       ok: true,
       message: input.message,
@@ -227,12 +232,14 @@ function renderIndexTs(options: ResolvedOptions) {
   });`;
 
   return `
-import { Redop } from "@useagents/redop";
+import { Redop } from "@redopjs/redop";
 ${schemaImport(options.schemaLibrary, components)}
 
 new Redop({
-  name: "${toServerName(options.appName)}",
-  version: "0.1.0",
+  serverInfo: {
+    name: "${toServerName(options.appName)}",
+    version: "0.1.0",
+  },
 })
 ${chain}
 ${listenBlock}

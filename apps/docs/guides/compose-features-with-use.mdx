@@ -1,0 +1,141 @@
+---
+title: Compose Features with use
+description: Organize a larger Redop server by giving each feature folder its own Redop module and composing them in the main server with use.
+---
+
+Use `.use(...)` as the main composition primitive when your server grows past a single file.
+
+The simplest mental model is:
+
+- one feature folder owns one area of the server
+- that folder exports one `Redop` instance
+- the root server imports those feature modules and attaches them with `.use(...)`
+
+## Why this pattern works
+
+This keeps composition obvious:
+
+- folder structure matches server structure
+- each feature can register its own tools, resources, prompts, middleware, and hooks
+- the root server stays small
+- naming stays explicit instead of being rewritten by a grouping helper
+
+## Recommended folder shape
+
+```txt
+src/
+  features/
+    notes/
+      create.ts
+      list.ts
+      index.ts
+    users/
+      get.ts
+      index.ts
+  index.ts
+```
+
+## Feature module
+
+Each feature folder builds one `Redop` module and exports it.
+
+```ts
+// src/features/notes/create.ts
+import type { Redop } from "@redopjs/redop";
+
+export function registerCreateNote(app: Redop) {
+  app.tool("notes.create", {
+    description: "Create a note",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+      },
+      required: ["title"],
+    },
+    handler: ({ input }) => ({
+      id: crypto.randomUUID(),
+      title: input.title,
+    }),
+  });
+}
+```
+
+```ts
+// src/features/notes/list.ts
+import type { Redop } from "@redopjs/redop";
+
+export function registerListNotes(app: Redop) {
+  app.tool("notes.list", {
+    description: "List notes",
+    handler: () => ({
+      notes: [],
+    }),
+  });
+}
+```
+
+```ts
+// src/features/notes/index.ts
+import { Redop } from "@redopjs/redop";
+import { registerCreateNote } from "./create";
+import { registerListNotes } from "./list";
+
+const notes = new Redop();
+
+registerCreateNote(notes);
+registerListNotes(notes);
+
+notes.resource("notes://{id}", {
+  name: "Note",
+  handler: async ({ params }) => ({
+    type: "text",
+    text: JSON.stringify({ id: params.id }),
+  }),
+});
+
+export default notes;
+```
+
+## Root server
+
+The main server becomes a small composition layer.
+
+```ts
+// src/index.ts
+import { Redop } from "@redopjs/redop";
+import notes from "./features/notes";
+import users from "./features/users";
+
+new Redop({
+  serverInfo: {
+    name: "composed-server",
+    version: "0.1.0",
+  },
+})
+  .use(notes)
+  .use(users)
+  .listen(3000);
+```
+
+## Naming guidance
+
+Since Redop no longer rewrites names for you, make names explicit:
+
+- tools: `notes.list`, `notes.create`, `users.get`
+- prompts: `notes.summarise`
+- resources: `notes://{id}`, `users://{id}/profile`
+
+This keeps the public MCP surface easy to read and stable over time.
+
+## When to use a plugin instead
+
+Use a feature module when the registrations belong to one server.
+
+Use `definePlugin(...)` when the behavior should be packaged and reused across multiple servers or projects.
+
+## Related pages
+
+- [Plugins](/documentation/plugins)
+- [Middleware vs Hooks vs Plugins](/concepts/composition)
+- [Examples Overview](/examples/index)

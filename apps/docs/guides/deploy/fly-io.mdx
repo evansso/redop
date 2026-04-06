@@ -32,11 +32,13 @@ If you scaffolded with `create-redop-app --transport http --deploy fly-io`, the 
 ## Generated `src/index.ts` shape
 
 ```ts
-import { Redop } from "@useagents/redop";
+import { Redop } from "@redopjs/redop";
 
 new Redop({
-  name: "fly-redop",
-  version: "0.1.0",
+  serverInfo: {
+    name: "fly-redop",
+    version: "0.1.0",
+  },
 })
   .tool("ping", {
     handler: () => ({ ok: true }),

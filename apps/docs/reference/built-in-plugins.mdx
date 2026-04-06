@@ -1,9 +1,9 @@
 ---
 title: Built-In Plugins
-description: Reference for the built-in plugins exported by @useagents/redop.
+description: Reference for the built-in plugins exported by @redopjs/redop.
 ---
 
-These are the built-in plugins exported from `@useagents/redop` today. Each one returns a `Redop` instance, so you attach it with `.use(...)`.
+These are the built-in plugins exported from `@redopjs/redop` today. Each one returns a `Redop` instance, so you attach it with `.use(...)`.
 
 ## `logger(opts?)`
 
@@ -14,9 +14,9 @@ These are the built-in plugins exported from `@useagents/redop` today. Each one 
 - default level: `info`
 
 ```ts
-import { logger, Redop } from "@useagents/redop";
+import { logger, Redop } from "@redopjs/redop";
 
-new Redop({ name: "logs" }).use(logger({ level: "info" }));
+new Redop({ serverInfo: { name: "logs" } }).use(logger({ level: "info" }));
 ```
 
 ## `apiKey(opts?)`
@@ -34,9 +34,9 @@ new Redop({ name: "logs" }).use(logger({ level: "info" }));
 - default context key: `apiKey`
 
 ```ts
-import { apiKey, Redop } from "@useagents/redop";
+import { apiKey, Redop } from "@redopjs/redop";
 
-new Redop({ name: "auth" }).use(
+new Redop({ serverInfo: { name: "auth" } }).use(
   apiKey({
     key: process.env.API_SECRET ?? "dev-secret",
   }),
@@ -56,9 +56,9 @@ new Redop({ name: "auth" }).use(
   - `optional?: boolean`
 
 ```ts
-import { jwt, Redop } from "@useagents/redop";
+import { jwt, Redop } from "@redopjs/redop";
 
-new Redop({ name: "auth" }).use(
+new Redop({ serverInfo: { name: "auth" } }).use(
   jwt({
     secret: process.env.JWT_SECRET ?? "dev-jwt-secret",
   }),
@@ -75,9 +75,9 @@ new Redop({ name: "auth" }).use(
   - `optional?: boolean`
 
 ```ts
-import { oauth, Redop } from "@useagents/redop";
+import { oauth, Redop } from "@redopjs/redop";
 
-new Redop({ name: "auth" }).use(
+new Redop({ serverInfo: { name: "auth" } }).use(
   oauth({
     issuer: "https://auth.example.com",
     audience: "my-mcp-server",

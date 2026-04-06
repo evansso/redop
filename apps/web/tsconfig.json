@@ -1,5 +1,5 @@
 {
-  "extends": "@redop-ai/tsconfig/nextjs.json",
+  "extends": "@redopjs/tsconfig/nextjs.json",
   "compilerOptions": {
     "plugins": [
       {

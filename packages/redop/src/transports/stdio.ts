@@ -25,18 +25,30 @@ type ToolRunner = (
   name: string,
   args: Record<string, unknown>,
   meta: RequestMeta
-) => Promise<unknown>;
+) => Promise<DeferredExecution<unknown>>;
 
 type ResourceReader = (
   uri: string,
   req: RequestMeta
-) => Promise<ResourceContents>;
+) => Promise<DeferredExecution<ResourceContents>>;
 
 type PromptGetter = (
   name: string,
   args: Record<string, string> | undefined,
   req: RequestMeta
-) => Promise<PromptHandlerResult>;
+) => Promise<DeferredExecution<PromptHandlerResult>>;
+
+type DeferredExecution<R> =
+  | {
+      afterResponse: () => Promise<void>;
+      ok: true;
+      result: R;
+    }
+  | {
+      afterResponse: () => Promise<void>;
+      error: unknown;
+      ok: false;
+    };
 
 // ── Helpers ───────────────────────────────────
 
@@ -80,6 +92,23 @@ function notify(method: string, params: unknown): void {
 /** Log to stderr — the only safe place for non-MCP output. */
 function log(msg: string): void {
   process.stderr.write(`[redop:stdio] ${msg}\n`);
+}
+
+function scheduleAfterResponse(
+  afterResponse: () => Promise<void> | void,
+  label: string
+): void {
+  queueMicrotask(() => {
+    void Promise.resolve()
+      .then(() => afterResponse())
+      .catch((error) => {
+        log(
+          `afterResponse error (${label}): ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      });
+  });
 }
 
 /**
@@ -357,8 +386,29 @@ export function startStdioTransport(
       checkAbort();
 
       try {
-        const raw = await runTool(toolName!, p.arguments ?? {}, requestMeta);
+        const execution = await runTool(
+          toolName!,
+          p.arguments ?? {},
+          requestMeta
+        );
         checkAbort();
+        if (!execution.ok) {
+          respond(id, {
+            content: [
+              {
+                type: "text",
+                text:
+                  execution.error instanceof Error
+                    ? execution.error.message
+                    : String(execution.error),
+              },
+            ],
+            isError: true,
+          });
+          scheduleAfterResponse(execution.afterResponse, `tool:${toolName}`);
+          return;
+        }
+        const raw = execution.result;
 
         const result: Record<string, unknown> = {
           content: [{ type: "text", text: JSON.stringify(raw) }],
@@ -368,6 +418,7 @@ export function startStdioTransport(
           result.structuredContent = raw;
         }
         respond(id, result);
+        scheduleAfterResponse(execution.afterResponse, `tool:${toolName}`);
       } catch (err) {
         if (signal.aborted) {
           return; // Cancelled — no response per spec
@@ -437,12 +488,24 @@ export function startStdioTransport(
       checkAbort();
 
       try {
-        const contents = await readResource(uri, {
+        const execution = await readResource(uri, {
           abortSignal: signal,
           headers: {},
           transport: "stdio",
         });
         checkAbort();
+        if (!execution.ok) {
+          respondError(
+            id,
+            -32_602,
+            execution.error instanceof Error
+              ? execution.error.message
+              : String(execution.error)
+          );
+          scheduleAfterResponse(execution.afterResponse, `resource:${uri}`);
+          return;
+        }
+        const contents = execution.result;
 
         const wireContent =
           contents.type === "text"
@@ -450,6 +513,7 @@ export function startStdioTransport(
             : { uri, mimeType: contents.mimeType, blob: contents.blob };
 
         respond(id, { contents: [wireContent] });
+        scheduleAfterResponse(execution.afterResponse, `resource:${uri}`);
       } catch (err) {
         if (signal.aborted) {
           return;
@@ -529,15 +593,28 @@ export function startStdioTransport(
       checkAbort();
 
       try {
-        const raw = await getPrompt(name, args, {
+        const execution = await getPrompt(name, args, {
           abortSignal: signal,
           headers: {},
           transport: "stdio",
         });
         checkAbort();
+        if (!execution.ok) {
+          respondError(
+            id,
+            -32_602,
+            execution.error instanceof Error
+              ? execution.error.message
+              : String(execution.error)
+          );
+          scheduleAfterResponse(execution.afterResponse, `prompt:${name}`);
+          return;
+        }
+        const raw = execution.result;
 
         const result = Array.isArray(raw) ? { messages: raw } : raw;
         respond(id, result);
+        scheduleAfterResponse(execution.afterResponse, `prompt:${name}`);
       } catch (err) {
         if (signal.aborted) {
           return;

@@ -38,7 +38,7 @@ export function logger(opts: LoggerOptions = {}): Redop {
     }
   };
 
-  return new Redop()
+  return new Redop<{ startedAt?: number }>()
     .onBeforeHandle(({ tool, ctx, request }) => {
       log("info", {
         event: "tool.start",
@@ -122,24 +122,22 @@ export function analytics(opts: AnalyticsOptions = {}): Redop {
     }
   }
 
-  return new Redop()
+  return new Redop<{ analyticsSuccess?: boolean; startedAt?: number }>()
     .onBeforeHandle(({ ctx }) => {
-      (ctx as Record<string, unknown>).startedAt = performance.now();
-      (ctx as Record<string, unknown>).analyticsSuccess = true;
+      ctx.startedAt = performance.now();
+      ctx.analyticsSuccess = true;
     })
     .onError(({ ctx }) => {
-      (ctx as Record<string, unknown>).analyticsSuccess = false;
+      ctx.analyticsSuccess = false;
     })
     .onAfterHandle(({ tool, ctx }) => {
-      const startedAt = ctx.startedAt as number | undefined;
+      const startedAt = ctx.startedAt;
       const durationMs =
         startedAt == null ? 0 : +(performance.now() - startedAt).toFixed(2);
       emit({
         durationMs,
         requestId: ctx.requestId,
-        success:
-          ((ctx as Record<string, unknown>).analyticsSuccess as boolean) ??
-          true,
+        success: ctx.analyticsSuccess ?? true,
         tool,
       });
     });

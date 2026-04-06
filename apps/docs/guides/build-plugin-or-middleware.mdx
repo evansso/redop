@@ -5,6 +5,8 @@ description: Create your own middleware or package reusable Redop behavior as a 
 
 Use middleware when you need to wrap execution for a request. Use a plugin when you want to bundle middleware, hooks, tools, resources, or prompts into one reusable unit.
 
+If the behavior is analytics, logging, or metrics that should happen after the response is already written, prefer `onAfterResponse(...)` inside the plugin over `onAfterHandle(...)`.
+
 ## Build middleware first when the behavior is request-scoped
 
 Middleware is the fastest path when you want to:
@@ -15,14 +17,14 @@ Middleware is the fastest path when you want to:
 - wrap `next()`
 
 ```ts
-import { middleware, Redop } from "@useagents/redop";
+import { middleware, Redop } from "@redopjs/redop";
 
 const requestIdPrefix = middleware(async ({ ctx, next }) => {
   (ctx as Record<string, unknown>).shortRequestId = ctx.requestId.slice(0, 8);
   return next();
 });
 
-new Redop({ name: "middleware-demo" })
+new Redop({ serverInfo: { name: "middleware-demo" } })
   .middleware(requestIdPrefix)
   .tool("hello", {
     handler: ({ ctx }) => ({
@@ -37,7 +39,7 @@ new Redop({ name: "middleware-demo" })
 `definePlugin(...)` is the cleanest path when you want to share behavior across multiple servers.
 
 ```ts
-import { definePlugin, Redop } from "@useagents/redop";
+import { definePlugin, Redop } from "@redopjs/redop";
 
 const timingPlugin = definePlugin({
   name: "timing",
@@ -58,7 +60,7 @@ const timingPlugin = definePlugin({
   },
 });
 
-new Redop({ name: "plugin-demo" }).use(timingPlugin({}));
+new Redop({ serverInfo: { name: "plugin-demo" } }).use(timingPlugin({}));
 ```
 
 ## A plugin can ship more than middleware
@@ -72,7 +74,7 @@ A plugin can register:
 - prompts
 
 ```ts
-import { definePlugin, Redop } from "@useagents/redop";
+import { definePlugin, Redop } from "@redopjs/redop";
 
 const healthPlugin = definePlugin({
   name: "health",

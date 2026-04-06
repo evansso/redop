@@ -66,4 +66,76 @@ describe("Generator Logic", () => {
     expect(source.includes('import { z } from "zod";')).toBe(false);
     expect(source.includes('type: "object"')).toBe(true);
   });
+
+  test("should generate a valibot based tool starter", async () => {
+    const options: ResolvedOptions = {
+      appName: "valibot-app",
+      components: ["tools"],
+      deploy: "none",
+      packageManager: "bun",
+      schemaLibrary: "valibot",
+      targetDir: TEST_DIR,
+      template: "standard",
+      transport: "http",
+    };
+
+    await generateProject(options);
+
+    const pkg = await readFile(path.join(TEST_DIR, "package.json"), "utf8");
+    const source = await readFile(path.join(TEST_DIR, "src/index.ts"), "utf8");
+
+    expect(pkg.includes('"valibot"')).toBe(true);
+    expect(source.includes('import * as v from "valibot";')).toBe(true);
+    expect(source.includes("v.object({")).toBe(true);
+    expect(source.includes('import { z } from "zod";')).toBe(false);
+  });
+
+  test("should generate a typebox based tool starter", async () => {
+    const options: ResolvedOptions = {
+      appName: "typebox-app",
+      components: ["tools"],
+      deploy: "none",
+      packageManager: "bun",
+      schemaLibrary: "typebox",
+      targetDir: TEST_DIR,
+      template: "standard",
+      transport: "http",
+    };
+
+    await generateProject(options);
+
+    const pkg = await readFile(path.join(TEST_DIR, "package.json"), "utf8");
+    const source = await readFile(path.join(TEST_DIR, "src/index.ts"), "utf8");
+
+    expect(pkg.includes('"@sinclair/typebox"')).toBe(true);
+    expect(
+      source.includes('import { Type } from "@sinclair/typebox";')
+    ).toBe(true);
+    expect(source.includes("Type.Object({")).toBe(true);
+    expect(source.includes('import { z } from "zod";')).toBe(false);
+  });
+
+  test("should ignore schema-library-specific starter code when tools are not selected", async () => {
+    const options: ResolvedOptions = {
+      appName: "resource-prompt-app",
+      components: ["resources", "prompts"],
+      deploy: "none",
+      packageManager: "bun",
+      schemaLibrary: "valibot",
+      targetDir: TEST_DIR,
+      template: "standard",
+      transport: "http",
+    };
+
+    await generateProject(options);
+
+    const pkg = await readFile(path.join(TEST_DIR, "package.json"), "utf8");
+    const source = await readFile(path.join(TEST_DIR, "src/index.ts"), "utf8");
+
+    expect(pkg.includes('"valibot"')).toBe(false);
+    expect(source.includes('import * as v from "valibot";')).toBe(false);
+    expect(source.includes('.tool("ping"')).toBe(false);
+    expect(source.includes('.resource("app://status"')).toBe(true);
+    expect(source.includes('.prompt("summarise_status"')).toBe(true);
+  });
 });

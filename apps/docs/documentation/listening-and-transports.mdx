@@ -1,0 +1,156 @@
+---
+title: Listening and Transports
+description: Choose between HTTP and stdio in Redop, understand how listen() picks a transport, and use the right startup shape for local or hosted servers.
+---
+
+Use `listen()` when you are ready to expose your Redop server over either `http` or `stdio`.
+
+This page explains how to think about transport choice and common startup shapes. For the exact `listen()` overloads and full option surface, use [listen() Options](/reference/listen-options).
+
+## How Redop picks a transport
+
+Redop chooses the transport from the `listen(...)` call shape:
+
+- `listen()` starts `stdio`
+- `listen(3000)` starts `http`
+- `listen({ port: 3000 })` starts `http`
+- `listen({ transport: "stdio" })` forces `stdio`
+- `listen({ transport: "http" })` forces `http`
+
+That means the port is the main signal for hosted HTTP usage. If you omit the port entirely, Redop defaults to `stdio`.
+
+## Common call patterns
+
+```ts
+app.listen();
+
+app.listen(3000);
+
+app.listen(3000, "0.0.0.0");
+
+app.listen({
+  port: Number(process.env.PORT ?? 3000),
+  hostname: "0.0.0.0",
+  path: "/mcp",
+  health: { path: "/health" },
+  debug: true,
+});
+
+app.listen({
+  transport: "stdio",
+});
+```
+
+Use the shortest call that still makes the transport choice obvious to the next reader.
+
+## Choose HTTP when
+
+Use `http` when your server should run as a network service:
+
+- hosted MCP servers
+- shared endpoints multiple clients will reach by URL
+- deployments on platforms that run a long-lived Bun process
+- setups where you need `/mcp` plus an optional health route
+
+For hosted servers, the common shape is:
+
+```ts
+app.listen({
+  port: Number(process.env.PORT ?? 3000),
+  hostname: "0.0.0.0",
+});
+```
+
+## Choose stdio when
+
+Use `stdio` when the MCP client launches the server as a local command:
+
+- local editor integrations
+- desktop MCP clients
+- command-based local workflows
+- setups where you do not need a network port
+
+The common shape is:
+
+```ts
+app.listen({
+  transport: "stdio",
+});
+```
+
+In stdio mode, keep stdout clean for MCP messages and send logs to stderr instead.
+
+## When `path`, `health`, and `debug` matter
+
+### `path`
+
+Use `path` only when you need a custom MCP route. The default is `/mcp`, which is the path the rest of the docs assume.
+
+### `health`
+
+Use `health` when your platform wants a separate HTTP probe route. This is for platform checks, not for MCP clients.
+
+```ts
+app.listen({
+  port: 3000,
+  health: { path: "/health" },
+});
+```
+
+### `debug`
+
+Use `debug: true` when you are troubleshooting HTTP connection, session, or protocol behavior.
+
+```ts
+app.listen({
+  port: 3000,
+  debug: true,
+});
+```
+
+This writes transport-level logs to stderr.
+
+## Hosted vs local usage
+
+Think about the transport choice from the client's point of view:
+
+- if the client needs a URL, use `http`
+- if the client launches a command, use `stdio`
+
+For hosted HTTP deployments:
+
+- bind to `0.0.0.0`
+- read `PORT` from the environment
+- keep the MCP endpoint at `/mcp` unless you have a strong reason to change it
+
+For local stdio usage:
+
+- run the process directly with a command such as `bun run src/index.ts`
+- avoid writing logs to stdout
+
+## Manual HTTP verification
+
+The first HTTP request is usually `initialize`:
+
+```sh
+curl -i -X POST http://localhost:3000/mcp \
+  -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"manual-check","version":"1.0.0"}}}'
+```
+
+After `initialize`, copy the `Mcp-Session-Id` response header into later HTTP requests. Redop expects that header on follow-up JSON-RPC calls.
+
+```sh
+curl -X POST http://localhost:3000/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'MCP-Session-Id: your-session-id' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+```
+
+## Related pages
+
+- [listen() Options](/reference/listen-options)
+- [Connect over HTTP](/getting-started/connect-http)
+- [Connect over stdio](/getting-started/connect-stdio)
+- [Choose Between HTTP and stdio](/guides/choose-transport)
+- [HTTP Transport Behavior](/reference/http-transport)

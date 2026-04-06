@@ -1,9 +1,13 @@
 ---
 title: listen() Options
-description: Reference for the listen options Redop exposes for HTTP and stdio transports, including current implementation caveats.
+description: Reference for the Redop listen() overloads and transport options for HTTP and stdio.
 ---
 
-## Supported call styles
+Use `listen()` to start either the HTTP or stdio transport.
+
+For transport selection guidance and common usage patterns, use [Listening and Transports](/documentation/listening-and-transports).
+
+## Overloads
 
 ```ts
 app.listen();
@@ -16,7 +20,18 @@ app.listen({
 });
 ```
 
-## Common shape
+## Behavior by call shape
+
+| Call shape | Result |
+| ------ | ----- |
+| `listen()` | Starts `stdio` |
+| `listen(3000)` | Starts `http` on port `3000` |
+| `listen(3000, "0.0.0.0")` | Starts `http` with an explicit hostname |
+| `listen({ port: 3000 })` | Starts `http` |
+| `listen({ transport: "stdio" })` | Forces `stdio` |
+| `listen({ transport: "http" })` | Forces `http` |
+
+## Typical HTTP options
 
 ```ts
 app.listen({
@@ -26,7 +41,6 @@ app.listen({
   path: "/mcp",
   health: { path: "/health" },
   debug: true,
-  devUI: true,
   sessionTimeout: 60_000,
   onListen: ({ url }) => {
     console.log(url);
@@ -34,26 +48,50 @@ app.listen({
 });
 ```
 
-## Implemented options
+## Options
+
+### Shared options
 
 | Option | Notes |
 | ------ | ----- |
-| `transport` | `"http"` or `"stdio"`. |
-| `port` | Starts HTTP when present. Also available via `listen(3000)`. |
+| `transport` | `"http"` or `"stdio"`. Defaults to `"http"` when `port` is set, otherwise `"stdio"`. |
+
+### HTTP options
+
+| Option | Notes |
+| ------ | ----- |
+| `port` | HTTP port. Also available through `listen(3000)`. Defaults to `3000` for HTTP. |
 | `hostname` | HTTP bind address. Defaults to `127.0.0.1`. |
-| `path` | HTTP MCP path. Defaults to `/mcp`. |
-| `health` | Optional HTTP health endpoint. Use `true` for `/health` or `{ path: "/health" }` for a custom path. Disabled by default. |
-| `debug` | Enables HTTP transport logs. |
-| `devUI` | Controls the development UI. Defaults to enabled outside production. |
-| `sessionTimeout` | Session TTL for HTTP sessions. |
-| `onListen` | Callback fired when the HTTP server starts. |
+| `path` | MCP endpoint path for HTTP. Defaults to `/mcp`. |
+| `health` | Enable `/health` or provide `{ path }` for a custom health route. Disabled by default. |
+| `debug` | Writes HTTP transport logs to stderr. |
+| `sessionTimeout` | HTTP session expiry in milliseconds. Defaults to `60000`. |
+| `onListen` | Callback fired after the HTTP server starts. Receives `{ hostname, port, url }`. |
+| `cors` | Enable permissive CORS or provide the typed `CorsOptions` shape. |
+| `maxBodySize` | Maximum accepted request body size in bytes in the public type surface. |
+| `tls` | TLS options in the public type surface. |
 
-## Typed but currently caveated
+### Stdio options
 
-These options exist in the public type surface, but the current HTTP implementation is limited:
+| Option | Notes |
+| ------ | ----- |
+| `transport` | Set to `"stdio"` to force stdio explicitly. |
 
-| Option | Current state |
-| ------ | ------------- |
-| `cors` | Present in the type surface, but the current transport uses a simple built-in allow-origin behavior rather than a rich policy implementation. |
+## Current implementation caveats
+
+These reflect the current HTTP implementation, not just the public type surface:
+
+| Option | Current behavior |
+| ------ | ----- |
+| `cors` | Present in the type surface. The current HTTP transport always sends a basic permissive CORS response rather than using the full `CorsOptions` shape. |
 | `maxBodySize` | Present in the type surface, but not currently enforced by the HTTP transport. |
-| `tls` | Present in the type surface and used when formatting the reported URL, but the current HTTP transport does not yet wire Bun TLS startup from this option. |
+| `tls` | Present in the type surface and used when formatting the reported URL, but the current HTTP transport does not start Bun with TLS from this option yet. |
+
+## Defaults
+
+- default transport: `stdio` without `port`, otherwise `http`
+- default HTTP hostname: `127.0.0.1`
+- default HTTP port: `3000`
+- default MCP path: `/mcp`
+- default health route: disabled
+- default session timeout: `60000`

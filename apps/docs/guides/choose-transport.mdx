@@ -1,6 +1,6 @@
 ---
 title: Choose Between HTTP and stdio
-description: Decide when to use the hosted HTTP transport and when to use the local stdio transport.
+description: Decide whether your Redop server should run over HTTP or stdio.
 ---
 
 Pick the transport based on how the MCP client will reach your server.
@@ -16,7 +16,7 @@ Pick the transport based on how the MCP client will reach your server.
 
 - you want a long-running Bun service
 - you need a URL clients can connect to
-- you want browser-based debugging with the dev UI
+- you want hosted or shared access to the same server
 
 ## Choose stdio when
 
@@ -24,6 +24,6 @@ Pick the transport based on how the MCP client will reach your server.
 - you do not need a network port
 - you want the simplest local integration path
 
-## Remember
+## How Redop picks a default
 
-If you call `listen(3000)` or pass a `port` in `listen(...)`, Redop defaults to HTTP. If you omit the port entirely, defaulting falls back to stdio unless you set `transport` explicitly.
+If you call `listen(3000)` or pass a `port` in `listen(...)`, Redop defaults to HTTP. If you omit the port entirely, Redop defaults to stdio unless you set `transport` explicitly.
